@@ -12,7 +12,9 @@ import (
 	"gorm.io/gorm"
 
 	"xicserver/handlers"
+	"xicserver/middlewares"
 
+	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 )
 
@@ -74,31 +76,73 @@ func initDB(config Config) (*gorm.DB, error) {
 	}
 
 	return nil, fmt.Errorf("データベース接続に失敗しました: %v", err)
+}
 
-	// host := os.Getenv("DB_HOST")
-	// user := os.Getenv("DB_USER")
-	// dbname := os.Getenv("DB_NAME")
-	// password := os.Getenv("DB_PASSWORD")
-	// sslmode := os.Getenv("DB_SSLMODE")
+func LoggerMiddleware(logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// リクエスト処理前のログ記録
+		start := time.Now()
+		path := c.Request.URL.Path
 
-	// dsn := "host=" + host + " user=" + user + " dbname=" + dbname + " password=" + password + " sslmode=" + sslmode
+		// 次の処理へ
+		c.Next()
 
-	// var err error
-	// for i := 0; i <= maxRetries; i++ {
-	// 	var gormDB *gorm.DB
-	// 	gormDB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	// 	if err == nil {
-	// 		sqlDB, err = gormDB.DB()
-	// 		if err == nil {
-	// 			return gormDB, nil
-	// 		}
-	// 	}
+		// リクエスト処理後のログ記録
+		latency := time.Since(start)
+		logger.Info("request",
+			zap.String("path", path),
+			zap.Int("status", c.Writer.Status()),
+			zap.Duration("latency", latency),
+		)
+	}
+}
 
-	// 	logger.Error("データベース接続のリトライ", zap.Int("retry", i), zap.Error(err))
-	// 	time.Sleep(retryInterval)
-	// }
+// トークン生成用のシークレットキー（実際のアプリケーションでは安全に管理する必要があります）
+var jwtKey = []byte("my_secret_key")
 
-	// return nil, fmt.Errorf("データベース接続に失敗しました: %v", err)
+// JWTクレームの構造体定義
+type MyClaims struct {
+	UserID string `json:"userid"`
+	jwt.StandardClaims
+}
+
+// JWTトークンを生成する関数
+func generateToken(userID string) (string, error) {
+	// 有効期限の設定
+	expirationTime := time.Now().Add(1 * time.Hour)
+
+	// クレームの設定
+	claims := &MyClaims{
+		UserID: userID,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expirationTime.Unix(),
+		},
+	}
+
+	// トークンの生成
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+
+	return tokenString, err
+}
+
+// JWTトークンを検証する関数
+func validateToken(tokenString string) (*MyClaims, error) {
+	claims := &MyClaims{}
+
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtKey, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !token.Valid {
+		return nil, fmt.Errorf("Invalid token")
+	}
+
+	return claims, nil
 }
 
 // User モデルの定義
@@ -125,11 +169,30 @@ type GameRoom struct {
 	RoomTheme        string
 }
 
+// SessionToken モデルの定義
+type SessionToken struct {
+	gorm.Model
+	TokenID    uint
+	UserID     uint      `gorm:"not null"`
+	Token      string    `gorm:"not null"`
+	TokenType  string    `gorm:"not null"` // "anonymous" または "registered"
+	ExpiresAt  time.Time `gorm:"not null"`
+	DeviceInfo string    // デバイス情報
+}
+
 func main() {
 	logger.Info("アプリケーションが起動しました。")
 
-	defer sqlDB.Close()
-	defer logger.Sync()
+	r := gin.New()
+	r.Use(gin.Recovery())                     // パニックからの回復を行う標準ミドルウェア
+	r.Use(LoggerMiddleware(logger))           // ロギングミドルウェアの登録
+	r.Use(middlewares.AuthMiddleware(logger)) // 認証ミドルウェアの適用
+
+	authGroup := r.Group("/").Use(middlewares.AuthMiddleware(logger))
+	{
+		authGroup.POST("/gameroom", handlers.CreateGameRoom)
+		// その他の保護されたルート
+	}
 
 	config, err := LoadConfig("config.json")
 	if err != nil {
@@ -137,16 +200,34 @@ func main() {
 	}
 
 	// データベース接続の初期化
-	_, err = initDB(config) // gormDB は現在使用しないため、変数に格納しない
+	_, err = initDB(config)
 	if err != nil {
 		logger.Error("データベースの初期化に失敗しました", zap.Error(err))
 		return
 	}
 
-	// Ginエンジンの初期化
-	r := gin.Default()
 	// ルーティングの設定
 	r.POST("/gameroom", handlers.CreateGameRoom)
+	r.GET("/someEndpoint", func(c *gin.Context) {
+		// エンドポイントの処理
+	})
+
+	// トークンの生成
+	tokenString, err := generateToken("12345")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Generated Token:", tokenString)
+
+	// トークンの検証
+	claims, err := validateToken(tokenString)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Token Valid, UserID:", claims.UserID)
+
+	defer sqlDB.Close() //アプリケーション終了時にデータベース接続と、
+	defer logger.Sync() //ロガーを適切に閉じます。
 
 	r.Run() // デフォルトでは ":8080" でリスニングします
 }
