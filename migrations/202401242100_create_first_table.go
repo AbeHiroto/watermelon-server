@@ -81,36 +81,6 @@ func main() {
 		return
 	}
 
-	// dsn := "host=" + host + " user=" + user + " dbname=" + dbname + " password=" + password + " sslmode=" + sslmode
-
-	// var db *gorm.DB
-	// var err error
-	// for i := 0; i < maxRetries; i++ {
-	// 	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	// 	if err == nil {
-	// 		break
-	// 	}
-	// 	logger.Error("データベースへの接続に失敗しました", zap.Int("retry", i), zap.Error(err))
-	// 	time.Sleep(retryInterval)
-	// }
-	// if err != nil {
-	// 	logger.Fatal("データベースへの接続に最終的に失敗しました", zap.Error(err))
-	// 	return
-	// }
-	// func AutoMigrateDB(db *gorm.DB) {
-	// 	err := db.AutoMigrate(&User{}, &GameRoom{})
-	// 	if err != nil {
-	// 		panic("Error migrating tables: " + err.Error())
-	// 	}
-	// }
-
-	// func main() {
-	// 	// データベース接続設定
-	// 	dsn := "your-database-connection-string"
-	// 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	// 	if err != nil {
-	// 		panic(err)
-	// 	}
 	defer sqlDB.Close() // SQLDBを閉じる
 	// defer db.Close()   // データベース接続を閉じる
 	defer logger.Sync() // ロガーの終了処理

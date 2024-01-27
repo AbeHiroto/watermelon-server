@@ -2,11 +2,61 @@ package middlewares
 
 import (
 	"net/http"
+	"time"
+
+	"xicserver/models"
 	// 必要なパッケージをインポート
+	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 	// データベース操作用のパッケージ
 )
+
+// グローバル変数としてデータベース接続を保持
+var db *gorm.DB
+
+// この関数を使用してデータベース接続を設定
+func SetDatabase(database *gorm.DB) {
+	db = database
+}
+
+var jwtKey = []byte("your_secret_key")
+
+// JWTクレームの構造体定義
+type MyClaims struct {
+	UserID             string `json:"userid"`
+	SubscriptionStatus string `json:"subscriptionStatus"`
+	jwt.StandardClaims
+}
+
+// JWTトークンを生成する関数
+func generateToken(user models.User) (string, error) {
+	var expirationTime time.Time
+
+	// 課金ユーザーは長い有効期限を設定
+	if user.SubscriptionStatus == "paid" {
+		expirationTime = time.Now().Add(72 * time.Hour) // 例: 72時間
+	} else {
+		// それ以外のユーザー（無料など）は短い有効期限
+		expirationTime = time.Now().Add(24 * time.Hour) // 例: 24時間
+	}
+
+	// クレームの設定
+	claims := &MyClaims{
+		UserID:             user.UserID,
+		SubscriptionStatus: user.SubscriptionStatus,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expirationTime.Unix(),
+		},
+	}
+
+	// トークンの生成
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+
+	return tokenString, err
+}
 
 // トークン検証とユーザーID検証を行うミドルウェア
 func AuthMiddleware(logger *zap.Logger) gin.HandlerFunc {
@@ -14,7 +64,7 @@ func AuthMiddleware(logger *zap.Logger) gin.HandlerFunc {
 		token := c.GetHeader("Authorization")
 		userID := c.GetHeader("UserID")
 
-		if isValidToken(token) && isValidUserID(userID) {
+		if isValidToken(logger, db, token) && isValidUserID(logger, db, userID) {
 			logger.Info("認証成功", zap.String("token", token), zap.String("userID", userID))
 			c.Next()
 		} else {
@@ -25,54 +75,36 @@ func AuthMiddleware(logger *zap.Logger) gin.HandlerFunc {
 }
 
 // トークンが有効かどうかをチェックする関数
-func isValidToken(token string) bool {
-	// データベースや認証サービスでトークンを照合
-	// JWTなどの標準的なトークンフォーマットを使用する場合は、ここでデコードと検証を行う
-	return true // 仮の実装
+func isValidToken(logger *zap.Logger, db *gorm.DB, tokenString string) bool {
+	claims := &MyClaims{}
+
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtKey, nil
+	})
+
+	if err != nil || !token.Valid {
+		logger.Warn("トークンのパースに失敗", zap.Error(err))
+		return false
+	}
+
+	var sessionToken models.SessionToken
+	if err := db.Where("token = ? AND expires_at > ?", tokenString, time.Now()).First(&sessionToken).Error; err != nil {
+		logger.Warn("トークンがデータベースに存在しない", zap.Error(err))
+		return false
+	}
+
+	logger.Info("トークンが有効", zap.String("token", tokenString))
+	return true
 }
 
 // ユーザーIDが有効かどうかをチェックする関数
-func isValidUserID(userID string) bool {
-	// データベースでユーザーIDを照合
-	return true // 仮の実装
+func isValidUserID(logger *zap.Logger, db *gorm.DB, userID string) bool {
+	var user models.User
+	if err := db.Where("user_id = ?", userID).First(&user).Error; err != nil {
+		logger.Warn("ユーザーIDがデータベースに存在しない", zap.Error(err))
+		return false
+	}
+
+	logger.Info("ユーザーIDが有効", zap.String("userID", userID))
+	return true
 }
-
-// package middlewares
-
-// import (
-// 	"net/http"
-
-// 	"github.com/gin-gonic/gin"
-// 	"go.uber.org/zap"
-// )
-
-// // AuthMiddleware は認証を行うミドルウェア関数です。
-// func AuthMiddleware(logger *zap.Logger) gin.HandlerFunc {
-// 	return func(c *gin.Context) {
-// 		// ここでセッショントークンとユーザーIDをリクエストから取得
-// 		token := c.GetHeader("Authorization")
-// 		userID := c.GetHeader("UserID")
-
-// 		// トークンとユーザーIDの検証
-// 		if isValidToken(token) && isValidUserID(userID) {
-// 			c.Next() // 認証成功
-// 		} else {
-// 			logger.Info("認証失敗", zap.String("token", token), zap.String("userID", userID))
-// 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-// 		}
-// 	}
-// }
-
-// // isValidToken はトークンが有効かどうかをチェックする関数です。
-// func isValidToken(token string) bool {
-// 	// トークン検証ロジックの実装
-// 	// 例: データベースや認証サービスと照合
-// 	return token == "valid" // 仮の実装
-// }
-
-// // isValidUserID はユーザーIDが有効かどうかをチェックする関数です。
-// func isValidUserID(userID string) bool {
-// 	// ユーザーID検証ロジックの実装
-// 	// 例: データベースとの照合
-// 	return userID != "" // 仮の実装
-// }

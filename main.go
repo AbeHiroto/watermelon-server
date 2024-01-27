@@ -14,6 +14,8 @@ import (
 	"xicserver/handlers"
 	"xicserver/middlewares"
 
+	//"xicserver/models"
+
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 )
@@ -145,40 +147,40 @@ func validateToken(tokenString string) (*MyClaims, error) {
 	return claims, nil
 }
 
-// User モデルの定義
-type User struct {
-	gorm.Model
-	UserID             string `gorm:"unique;not null"`
-	SubscriptionStatus string `gorm:"not null"`
-	ValidRoomCount     int    `gorm:"not null"`
-}
+// // User モデルの定義
+// type User struct {
+// 	gorm.Model
+// 	UserID             string `gorm:"unique;not null"`
+// 	SubscriptionStatus string `gorm:"not null"`
+// 	ValidRoomCount     int    `gorm:"not null"`
+// }
 
-// GameRoom モデルの定義
-type GameRoom struct {
-	gorm.Model
-	GameRoomID       uint
-	Platform         string `gorm:"not null"`
-	AccountName      string `gorm:"not null"`
-	MatchType        string `gorm:"not null"`
-	UnfairnessDegree int    `gorm:"not null"`
-	GameState        string `gorm:"not null"`
-	CreationTime     int64  `gorm:"not null"`
-	LastActivityTime int64
-	FinishTime       int64
-	StartTime        int64
-	RoomTheme        string
-}
+// // GameRoom モデルの定義
+// type GameRoom struct {
+// 	gorm.Model
+// 	GameRoomID       uint
+// 	Platform         string `gorm:"not null"`
+// 	AccountName      string `gorm:"not null"`
+// 	MatchType        string `gorm:"not null"`
+// 	UnfairnessDegree int    `gorm:"not null"`
+// 	GameState        string `gorm:"not null"`
+// 	CreationTime     int64  `gorm:"not null"`
+// 	LastActivityTime int64
+// 	FinishTime       int64
+// 	StartTime        int64
+// 	RoomTheme        string
+// }
 
-// SessionToken モデルの定義
-type SessionToken struct {
-	gorm.Model
-	TokenID    uint
-	UserID     uint      `gorm:"not null"`
-	Token      string    `gorm:"not null"`
-	TokenType  string    `gorm:"not null"` // "anonymous" または "registered"
-	ExpiresAt  time.Time `gorm:"not null"`
-	DeviceInfo string    // デバイス情報
-}
+// // SessionToken モデルの定義
+// type SessionToken struct {
+// 	gorm.Model
+// 	TokenID    uint
+// 	UserID     uint      `gorm:"not null"`
+// 	Token      string    `gorm:"not null"`
+// 	TokenType  string    `gorm:"not null"` // "anonymous" または "registered"
+// 	ExpiresAt  time.Time `gorm:"not null"`
+// 	DeviceInfo string    // デバイス情報
+// }
 
 func main() {
 	logger.Info("アプリケーションが起動しました。")
