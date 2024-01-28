@@ -7,7 +7,7 @@ import (
 // GameRoom モデルの定義
 type GameRoom struct {
 	gorm.Model
-	GameRoomID       uint
+	//GameRoomID       uint
 	Platform         string `gorm:"not null"`
 	AccountName      string `gorm:"not null"`
 	MatchType        string `gorm:"not null"`

@@ -59,6 +59,50 @@ func GenerateToken(user models.User) (string, error) {
 	return tokenString, err
 }
 
+// // トークン検証とユーザーID検証を行うミドルウェア
+// func AuthMiddleware(logger *zap.Logger) gin.HandlerFunc {
+// 	return func(c *gin.Context) {
+// 		token := c.GetHeader("Authorization")
+
+// 		// ユーザーIDをトークンから抽出
+// 		claims, err := extractUserIDFromToken(token)
+// 		if err != nil {
+// 			logger.Warn("トークンからユーザーIDの取得に失敗", zap.Error(err))
+// 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+// 			return
+// 		}
+
+// 		// ユーザーIDが取得できなかった場合の処理
+// 		if claims == nil || claims.UserID == "" {
+// 			logger.Warn("ユーザーIDが取得できなかった", zap.String("token", token))
+// 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+// 			return
+// 		}
+
+// 		// ユーザーIDが有効かどうかをチェック
+// 		if isValidUserID(logger, db, claims.UserID) {
+// 			logger.Info("認証成功", zap.String("token", token), zap.String("userID", claims.UserID))
+// 			c.Set("UserID", claims.UserID) // ユーザーIDをコンテキストにセット
+// 			c.Next()
+// 		} else {
+// 			logger.Warn("認証失敗", zap.String("token", token), zap.String("userID", claims.UserID))
+// 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+// 		}
+// 	}
+// }
+
+// // トークンからユーザーIDを抽出する関数
+// func extractUserIDFromToken(tokenString string) (*MyClaims, error) {
+// 	claims := &MyClaims{}
+// 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+// 		return jwtKey, nil
+// 	})
+// 	if err != nil || !token.Valid {
+// 		return nil, err
+// 	}
+// 	return claims, nil
+// }
+
 // トークン検証とユーザーID検証を行うミドルウェア
 func AuthMiddleware(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
