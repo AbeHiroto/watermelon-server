@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -31,7 +32,7 @@ type MyClaims struct {
 }
 
 // JWTトークンを生成する関数
-func generateToken(user models.User) (string, error) {
+func GenerateToken(user models.User) (string, error) {
 	var expirationTime time.Time
 
 	// 課金ユーザーは長い有効期限を設定
@@ -64,6 +65,8 @@ func AuthMiddleware(logger *zap.Logger) gin.HandlerFunc {
 		token := c.GetHeader("Authorization")
 		userID := c.GetHeader("UserID")
 
+		refreshTokenIfNeeded(c, token)
+
 		if isValidToken(logger, db, token) && isValidUserID(logger, db, userID) {
 			logger.Info("認証成功", zap.String("token", token), zap.String("userID", userID))
 			c.Next()
@@ -95,6 +98,54 @@ func isValidToken(logger *zap.Logger, db *gorm.DB, tokenString string) bool {
 
 	logger.Info("トークンが有効", zap.String("token", tokenString))
 	return true
+}
+
+// トークンの有効期限が近づいているかどうかをチェック
+func ValidateToken(tokenString string) (*MyClaims, bool, error) {
+	claims := &MyClaims{}
+
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return jwtKey, nil
+	})
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !token.Valid {
+		return nil, false, fmt.Errorf("Invalid token")
+	}
+
+	// トークンの有効期限が1時間未満の場合、更新が必要
+	needUpdate := time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) < time.Hour
+
+	return claims, needUpdate, nil
+}
+
+func refreshTokenIfNeeded(c *gin.Context, tokenString string) {
+	claims, needUpdate, err := ValidateToken(tokenString)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	if needUpdate {
+		var user models.User
+		if err := db.Where("user_id = ?", claims.UserID).First(&user).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
+			return
+		}
+
+		// 新しいトークンを生成
+		newToken, err := GenerateToken(user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+			return
+		}
+
+		// 新しいトークンをレスポンスに追加
+		c.Header("Authorization", newToken)
+	}
 }
 
 // ユーザーIDが有効かどうかをチェックする関数
