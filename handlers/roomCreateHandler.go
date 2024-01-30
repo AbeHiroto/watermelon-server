@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"xicserver/auth"
+	"xicserver/middlewares"
 	"xicserver/models"
 
 	"go.uber.org/zap"
@@ -27,7 +28,7 @@ func init() {
 	}
 }
 
-func RoomCreate(c *gin.Context) {
+func RoomCreate(c *gin.Context, db *gorm.DB) {
 	var request models.LoginRequest
 	var err error
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -49,7 +50,7 @@ func RoomCreate(c *gin.Context) {
 
 		if err != nil || !token.Valid {
 			logger.Error("Token validation error", zap.Error(err))
-			newToken, userID, err = GenerateToken(request.SubscriptionStatus, 0)
+			newToken, userID, err = middlewares.GenerateToken(request.SubscriptionStatus, 0)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
 				return
@@ -60,7 +61,7 @@ func RoomCreate(c *gin.Context) {
 			userID = claims.UserID
 			// トークンの有効期限が1時間未満の場合は新しいトークンを生成
 			if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) < time.Hour {
-				newToken, _, err = GenerateToken(claims.SubscriptionStatus, userID)
+				newToken, _, err = middlewares.GenerateToken(claims.SubscriptionStatus, userID)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
 					return
@@ -74,7 +75,7 @@ func RoomCreate(c *gin.Context) {
 		}
 
 	} else {
-		newToken, userID, err = GenerateToken(request.SubscriptionStatus, 0)
+		newToken, userID, err = middlewares.GenerateToken(request.SubscriptionStatus, 0)
 		if err != nil {
 			logger.Error("Token generation error", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
@@ -99,67 +100,3 @@ func RoomCreate(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"token": newToken})
 	}
 }
-
-func GenerateToken(subscriptionStatus string, existingUserID uint) (string, uint, error) {
-	var expirationTime time.Time
-	var userID uint
-	var err error
-
-	if existingUserID > 0 {
-		// 既存のユーザーIDを再利用
-		userID = existingUserID
-	} else {
-		// 新しいユーザーIDを生成
-		userID, err = generateUserID(subscriptionStatus)
-		if err != nil {
-			logger.Error("トークン生成中にエラー発生", zap.Error(err))
-			return "", 0, err
-		}
-	}
-
-	// トークンの有効期限を設定
-	if subscriptionStatus == "paid" {
-		expirationTime = time.Now().Add(72 * time.Hour) // 例: 72時間
-	} else {
-		expirationTime = time.Now().Add(72 * time.Hour) // 例: 72時間
-	}
-
-	// JWTトークン生成時に内包するデータ
-	claims := &models.MyClaims{
-		UserID:             userID,
-		SubscriptionStatus: subscriptionStatus,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expirationTime.Unix(),
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(auth.JwtKey)
-
-	return tokenString, userID, err
-}
-
-// GORMによるオートインクリメントユーザーIDを生成する関数
-func generateUserID(subscriptionStatus string) (uint, error) {
-	// データベースに新しいUserインスタンスを作成
-	user := models.User{
-		SubscriptionStatus: subscriptionStatus, // 課金ステータスを設定
-	}
-	if err := db.Create(&user).Error; err != nil {
-		logger.Error("ユーザーID生成中にエラー発生", zap.Error(err))
-		return 0, err // エラー発生時
-	}
-	return user.ID, nil // UserインスタンスのIDを返す
-}
-
-// // トークンからユーザーIDを抽出
-// func extractUserIDFromToken(tokenString string) (*models.MyClaims, error) {
-// 	claims := &models.MyClaims{}
-// 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-// 		return auth.JwtKey, nil
-// 	})
-// 	if err != nil || !token.Valid {
-// 		return nil, err
-// 	}
-// 	return claims, nil
-// }
