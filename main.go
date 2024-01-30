@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"xicserver/handlers"
-	"xicserver/middlewares"
+	//"xicserver/middlewares"
 
 	//"xicserver/models"
 
@@ -114,19 +114,19 @@ func main() {
 	}
 
 	router := gin.Default()
-	router.Use(gin.Recovery())                     // パニックからの回復を行う標準ミドルウェア
-	router.Use(LoggerMiddleware(logger))           // ロギングミドルウェアの登録
-	router.Use(middlewares.AuthMiddleware(logger)) // 認証ミドルウェアの適用
+	router.Use(gin.Recovery())           // パニックからの回復を行う標準ミドルウェア
+	router.Use(LoggerMiddleware(logger)) // ロギングミドルウェアの登録
+	//router.Use(middlewares.AuthMiddleware(logger)) // 認証ミドルウェアの適用
 
 	// ユーザー登録とトークン生成のルートを設定
-	router.POST("/auth/register", handlers.RegisterUser(db))
+	//router.POST("/auth/register", handlers.RegisterUser(db))	//ユーザー登録必要ないかも
 	router.POST("/auth/token", handlers.GenerateToken(db))
 
-	authGroup := router.Group("/").Use(middlewares.AuthMiddleware(logger))
-	{
-		authGroup.POST("/gameroom", handlers.CreateGameRoom)
-		// その他の保護されたルート
-	}
+	// authGroup := router.Group("/").Use(middlewares.AuthMiddleware(logger))
+	// {
+	// 	authGroup.POST("/gameroom", handlers.CreateGameRoom)
+	// 	// その他の保護されたルート
+	// }
 
 	// ルーティングの設定
 	router.POST("/gameroom", handlers.CreateGameRoom)
