@@ -50,7 +50,7 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 
 		if err != nil || !token.Valid {
 			logger.Error("Token validation error", zap.Error(err))
-			newToken, userID, err = middlewares.GenerateToken(request.SubscriptionStatus, 0)
+			newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
 				return
@@ -61,7 +61,7 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 			userID = claims.UserID
 			// トークンの有効期限が1時間未満の場合は新しいトークンを生成
 			if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) < time.Hour {
-				newToken, _, err = middlewares.GenerateToken(claims.SubscriptionStatus, userID)
+				newToken, _, err = middlewares.GenerateToken(db, claims.SubscriptionStatus, userID)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
 					return
@@ -75,7 +75,7 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 		}
 
 	} else {
-		newToken, userID, err = middlewares.GenerateToken(request.SubscriptionStatus, 0)
+		newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
 		if err != nil {
 			logger.Error("Token generation error", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})

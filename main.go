@@ -39,13 +39,13 @@ func main() {
 		handlers.RoomCreate(c, db) // RoomCreate ハンドラに db を渡す
 	})
 
-	// 	router.Run() // HTTPサーバー用。デフォルトポートは ":8080"
+	router.Run() // HTTPサーバー用。デフォルトポートは ":8080"
 
-	// HTTPSサーバーの起動
-	err = router.RunTLS(":443", "path/to/cert.pem", "path/to/key.pem")
-	if err != nil {
-		logger.Fatal("Failed to run HTTPS server: ", zap.Error(err))
-	}
+	// // HTTPSサーバーの起動
+	// err = router.RunTLS(":443", "path/to/cert.pem", "path/to/key.pem")
+	// if err != nil {
+	// 	logger.Fatal("Failed to run HTTPS server: ", zap.Error(err))
+	// }
 }
 
 func init() {

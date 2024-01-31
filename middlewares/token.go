@@ -15,7 +15,7 @@ import (
 var db *gorm.DB // GORMデータベース接続を保持するグローバル変数
 var logger *zap.Logger
 
-func GenerateToken(subscriptionStatus string, existingUserID uint) (string, uint, error) {
+func GenerateToken(db *gorm.DB, subscriptionStatus string, existingUserID uint) (string, uint, error) {
 	var expirationTime time.Time
 	var userID uint
 	var err error
@@ -25,7 +25,7 @@ func GenerateToken(subscriptionStatus string, existingUserID uint) (string, uint
 		userID = existingUserID
 	} else {
 		// 新しいユーザーIDを生成
-		userID, err = GenerateUserID(subscriptionStatus)
+		userID, err = GenerateUserID(db, subscriptionStatus)
 		if err != nil {
 			logger.Error("トークン生成中にエラー発生", zap.Error(err))
 			return "", 0, err
@@ -55,7 +55,7 @@ func GenerateToken(subscriptionStatus string, existingUserID uint) (string, uint
 }
 
 // GORMによるオートインクリメントユーザーIDを生成する関数
-func GenerateUserID(subscriptionStatus string) (uint, error) {
+func GenerateUserID(db *gorm.DB, subscriptionStatus string) (uint, error) {
 	// データベースに新しいUserインスタンスを作成
 	user := models.User{
 		SubscriptionStatus: subscriptionStatus, // 課金ステータスを設定

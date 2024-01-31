@@ -13,9 +13,9 @@ type GameRoom struct {
 	MatchType        string `gorm:"not null"`
 	UnfairnessDegree int    `gorm:"not null"`
 	GameState        string `gorm:"not null"`
-	CreationTime     int64  `gorm:"not null"`
-	LastActivityTime int64
-	FinishTime       int64
-	StartTime        int64
-	RoomTheme        string
+	//CreationTime     int64  `gorm:"not null"`
+	//LastActivityTime int64
+	FinishTime int64
+	StartTime  int64
+	RoomTheme  string
 }
