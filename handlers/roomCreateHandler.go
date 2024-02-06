@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"time"
 
@@ -29,11 +31,14 @@ func init() {
 }
 
 func RoomCreate(c *gin.Context, db *gorm.DB) {
-	var request models.LoginRequest
+	var request models.RoomCreateRequest
 	var err error
 	if err := c.ShouldBindJSON(&request); err != nil {
 		logger.Error("Room create request bind error", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "error",
+			"message": err.Error(),
+		})
 		return
 	}
 
@@ -52,10 +57,16 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 			logger.Error("Token validation error", zap.Error(err))
 			newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"status":  "error",
+					"message": "トークン生成に失敗しました",
+				})
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{"token": newToken})
+			c.JSON(http.StatusOK, gin.H{
+				"status":   "token_invalid",
+				"newToken": newToken,
+			})
 			return
 		} else {
 			userID = claims.UserID
@@ -63,14 +74,20 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 			if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) < time.Hour {
 				newToken, _, err = middlewares.GenerateToken(db, claims.SubscriptionStatus, userID)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"status":  "error",
+						"message": "トークン生成に失敗しました",
+					})
 					return
 				}
 				// 新しいトークンをクライアントに返す
-				c.JSON(http.StatusOK, gin.H{"token": newToken})
+				c.JSON(http.StatusOK, gin.H{
+					"status": "token_invalid",
+					"token":  newToken,
+				})
 				return // ここで処理を終了し、ゲームルーム作成をスキップ
 			} else {
-				tokenValid = true // トークンが有効かつ有効期限が1時間以上ある場合
+				tokenValid = true // トークンが有効かつ有効期限が1時間以上ある場合tokenValid関数↓が有効化(true)
 			}
 		}
 
@@ -78,25 +95,47 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 		newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
 		if err != nil {
 			logger.Error("Token generation error", zap.Error(err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "トークン生成に失敗しました"})
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status": "error",
+				"error":  "トークン生成に失敗しました",
+			})
 			return
 		}
 	}
 
+	// 一意の招待URLを生成
+	bytes := make([]byte, 8) // 128ビットの乱数を生成
+	if _, err := rand.Read(bytes); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate unique token"})
+		return
+	}
+	uniqueToken := hex.EncodeToString(bytes) // 16進数の文字列に変換
+
 	// トークンが有効な場合のみゲームルームを作成
 	if tokenValid {
 		newGameRoom := models.GameRoom{
-			// フィールドの設定...
+			RoomCreator: request.Nickname,
+			GameState:   "created",
+			UniqueToken: uniqueToken,
+			RoomTheme:   request.RoomTheme,
+			// その他の初期値設定...
 		}
 		if err := db.Create(&newGameRoom).Error; err != nil {
 			logger.Error("Failed to create a new game room", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ゲームルーム作成に失敗しました"})
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{"token": newToken, "gameRoomID": newGameRoom.ID})
+		//ここでゲームルーム作成
+		c.JSON(http.StatusOK, gin.H{
+			"status":      "success",
+			"gameRoomID":  newGameRoom.ID,
+			"uniqueToken": newGameRoom.UniqueToken,
+		})
 	} else {
 		// トークンが無効な場合、新しいトークンを返す
-		c.JSON(http.StatusOK, gin.H{"token": newToken})
+		c.JSON(http.StatusOK, gin.H{
+			"status": "no_token",
+			"token":  newToken,
+		})
 	}
 }

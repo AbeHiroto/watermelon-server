@@ -60,7 +60,7 @@ func init() {
 
 // マイグレーションを実行する関数
 func AutoMigrateDB(db *gorm.DB) {
-	err := db.AutoMigrate(&User{}, &GameRoom{})
+	err := db.AutoMigrate(&User{}, &GameRoom{}, &Challenger{})
 	if err != nil {
 		logger.Error("Error migrating tables", zap.Error(err))
 	} else {

@@ -7,15 +7,10 @@ import (
 // GameRoom モデルの定義
 type GameRoom struct {
 	gorm.Model
-	//GameRoomID       uint
-	Platform         string `gorm:"not null"`
-	AccountName      string `gorm:"not null"`
-	MatchType        string `gorm:"not null"`
-	UnfairnessDegree int    `gorm:"not null"`
-	GameState        string `gorm:"not null"`
-	//CreationTime     int64  `gorm:"not null"`
-	//LastActivityTime int64
-	FinishTime int64
-	StartTime  int64
-	RoomTheme  string
+	RoomCreator string `gorm:"not null"` // 作成者ニックネーム
+	GameState   string `gorm:"not null;default:'created'"`
+	UniqueToken string `gorm:"unique;not null"` // 招待URL
+	FinishTime  int64
+	StartTime   int64
+	RoomTheme   string
 }
