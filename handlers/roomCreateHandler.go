@@ -36,7 +36,7 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 	if err := c.ShouldBindJSON(&request); err != nil {
 		logger.Error("Room create request bind error", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{
-			"status":  "error",
+			"status":  "request_binding_error",
 			"message": err.Error(),
 		})
 		return
@@ -58,7 +58,7 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 			newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  "token_validation_error",
+					"status":  "token_invalid_error",
 					"message": "トークン生成に失敗しました",
 				})
 				return
@@ -91,16 +91,21 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 			}
 		}
 
-	} else {
+	} else { //トークンを送るコード追加
 		newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
 		if err != nil {
 			logger.Error("Token generation error", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"status": "error",
-				"error":  "トークン生成に失敗しました",
+				"status": "no_token_error",
+				"error":  "トークンがありません",
 			})
 			return
 		}
+		// 新しく生成されたトークンをクライアントに返す
+		c.JSON(http.StatusOK, gin.H{
+			"status": "no_token",
+			"token":  newToken,
+		})
 	}
 
 	// 一意の招待URLを生成し、重複がないことを確認する部分
@@ -134,7 +139,10 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 		maxRoomCount := 5 // ユーザーごとのゲームルーム作成上限数
 		if count >= int64(maxRoomCount) {
 			// ゲームルーム作成上限に達している場合はエラーを返す
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Reached the limit of active rooms"})
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status": "room_limit",
+				"error":  "Reached the limit of active rooms",
+			})
 			return
 		}
 

@@ -14,6 +14,7 @@ import (
 	"xicserver/models"
 
 	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron/v3"
 )
 
 var logger *zap.Logger
@@ -107,3 +108,25 @@ func initDB(config models.Config) (*gorm.DB, error) {
 
 const maxRetries = 3                  // 最大再試行回数
 const retryInterval = 5 * time.Second // 再試行間の待機時間
+
+func scheduleGameStateUpdateAndDeletion(db *gorm.DB) {
+	c := cron.New()
+
+	// GameStateをexpiredに更新するジョブ（毎日特定の時間に実行）
+	c.AddFunc("@daily", func() {
+		logger.Info("GameStateを更新する処理を開始")
+		// 24時間更新がないルームをexpiredに更新
+		db.Model(&models.GameRoom{}).
+			Where("game_state = ? AND updated_at <= ?", "created", time.Now().Add(-24*time.Hour)).
+			Update("game_state", "expired")
+	})
+
+	// expired状態のルームを削除するジョブ（毎日特定の時間に実行）
+	c.AddFunc("@daily", func() {
+		logger.Info("expired状態のルームを削除する処理を開始")
+		// 48時間以上expired状態のルームを削除
+		db.Where("game_state = ? AND updated_at <= ?", "expired", time.Now().Add(-48*time.Hour)).Delete(&models.GameRoom{})
+	})
+
+	c.Start()
+}
