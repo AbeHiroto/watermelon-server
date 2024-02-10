@@ -39,8 +39,27 @@ func main() {
 	router.POST("/create", func(c *gin.Context) {
 		handlers.RoomCreate(c, db) // RoomCreate ハンドラに db を渡す
 	})
+	router.GET("/room/:roomID/info", func(c *gin.Context) {
+		handlers.MyRoomInfoHandler(c, db, logger)
+	})
+	router.GET("/request/:requestID/info", func(c *gin.Context) {
+		handlers.MyRequestHandler(c, db, logger)
+	})
+	router.DELETE("/room/:roomID", func(c *gin.Context) {
+		handlers.RoomDeleteHandler(c, db, logger)
+	})
+	router.DELETE("/request/disable/:requestId", func(c *gin.Context) {
+		handlers.DisableMyRequest(c, db, logger) // DisableMyRequest ハンドラに db と logger を渡す
+	})
+	router.PUT("/request/reply/:requestId", func(c *gin.Context) {
+		handlers.ReplyHandler(c, db, logger) // ReplyHandler ハンドラに db と logger を渡す
+	})
+	router.POST("/challenger/create", func(c *gin.Context) {
+		handlers.ChallengerHandler(c, db, logger) // ChallengerHandler ハンドラに db と logger を渡す
+	})
 
-	router.Run() // HTTPサーバー用。デフォルトポートは ":8080"
+	// HTTPサーバー用。デフォルトポートは ":8080"
+	router.Run()
 
 	// // HTTPSサーバーの起動
 	// err = router.RunTLS(":443", "path/to/cert.pem", "path/to/key.pem")
