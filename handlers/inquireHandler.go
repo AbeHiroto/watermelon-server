@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"xicserver/auth"
 	"xicserver/models"
 
 	"go.uber.org/zap"
@@ -258,7 +259,7 @@ func GetUserIDFromToken(c *gin.Context, logger *zap.Logger) (uint, error) {
 	// JWTトークンの解析
 	token, err := jwt.ParseWithClaims(tokenString, &models.MyClaims{}, func(token *jwt.Token) (interface{}, error) {
 		// ！！！ここで使用するシークレットキーは、本番環境では環境変数で設定
-		return []byte("your_secret_key"), nil
+		return auth.JwtKey, nil
 	})
 
 	if err != nil {
