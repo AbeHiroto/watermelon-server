@@ -106,6 +106,7 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 			"status": "no_token",
 			"token":  newToken,
 		})
+		return
 	}
 
 	// 一意の招待URLを生成し、重複がないことを確認する部分

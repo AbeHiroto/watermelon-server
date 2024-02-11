@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 	"time"
 	"xicserver/auth"
 	"xicserver/middlewares"
@@ -31,10 +32,9 @@ func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 
 	// トークンをヘッダーから取得
 	tokenString := c.GetHeader("Authorization")
-	if tokenString == "" {
-		logger.Error("No token provided")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No token provided"})
-		return
+	// Bearerトークンのプレフィックスを確認し、存在する場合は削除
+	if strings.HasPrefix(tokenString, "Bearer ") {
+		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
 	}
 
 	var userID uint

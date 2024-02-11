@@ -26,6 +26,7 @@ type User struct {
 	gorm.Model
 	SubscriptionStatus string `gorm:"not null"`
 	ValidRoomCount     int    `gorm:"not null"`
+	//★★★ValidRequestCountを追加！
 }
 
 // GameRoom モデルの定義
