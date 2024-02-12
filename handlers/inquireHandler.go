@@ -130,6 +130,25 @@ func RoomDeleteHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
+	// GameStateを"disabled"に更新後にユーザーのValidRoomCountをデクリメント
+	if result.RowsAffected > 0 {
+		var user models.User
+		if err := db.First(&user, userID).Error; err != nil {
+			logger.Error("Failed to fetch user for updating room count", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user room count"})
+			return
+		}
+
+		if user.ValidRoomCount > 0 {
+			user.ValidRoomCount -= 1
+			if err := db.Save(&user).Error; err != nil {
+				logger.Error("Failed to decrement user's valid room count", zap.Error(err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decrement room count"})
+				return
+			}
+		}
+	}
+
 	// 正常に処理が完了したことをクライアントに通知
 	c.JSON(http.StatusOK, gin.H{
 		"message": "ルームが正常に削除されました",

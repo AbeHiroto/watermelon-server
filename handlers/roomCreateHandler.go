@@ -173,4 +173,19 @@ func RoomCreate(c *gin.Context, db *gorm.DB) {
 			"token":  newToken,
 		})
 	}
+
+	// ゲームルーム作成成功後にユーザーのValidRoomCountをインクリメント
+	var user models.User
+	if err := db.First(&user, userID).Error; err != nil {
+		logger.Error("Failed to fetch user for updating room count", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user room count"})
+		return
+	}
+
+	user.ValidRoomCount += 1
+	if err := db.Save(&user).Error; err != nil {
+		logger.Error("Failed to increment user's valid room count", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to increment room count"})
+		return
+	}
 }

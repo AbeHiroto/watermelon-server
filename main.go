@@ -39,6 +39,9 @@ func main() {
 	router.POST("/create", func(c *gin.Context) {
 		handlers.RoomCreate(c, db) // RoomCreate ハンドラに db を渡す
 	})
+	router.GET("/home", func(c *gin.Context) {
+		handlers.HomeHandler(c, db, logger) // HomeHandler ハンドラに db と logger を渡す
+	})
 	router.GET("/room/:roomID/info", func(c *gin.Context) {
 		handlers.MyRoomInfoHandler(c, db, logger)
 	})
