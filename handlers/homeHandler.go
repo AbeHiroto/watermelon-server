@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -13,12 +14,60 @@ import (
 	"gorm.io/gorm"
 )
 
+// getUserIDFromToken はリクエストからJWTトークンを取得し、ユーザーIDを解析して返します。
+func GetUserIDFromToken(c *gin.Context, logger *zap.Logger) (uint, error) {
+	// トークンをリクエストヘッダーから取得
+	tokenString := c.GetHeader("Authorization")
+
+	// Bearerトークンのプレフィックスを確認し、存在する場合は削除
+	if strings.HasPrefix(tokenString, "Bearer ") {
+		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	}
+
+	// ここでtokenStringが空文字列でないことを確認
+	if tokenString == "" {
+		logger.Error("Token string is empty")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Token is required"})
+		return 0, fmt.Errorf("Token is required")
+	}
+
+	// JWTトークンの解析
+	token, err := jwt.ParseWithClaims(tokenString, &models.MyClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return auth.JwtKey, nil // ！！！ここで使用するシークレットキーは、本番環境では環境変数で設定
+	})
+
+	if err != nil {
+		logger.Error("Failed to parse JWT token", zap.Error(err))
+		return 0, err
+	}
+
+	// クレームの検証とユーザーIDの取得
+	if claims, ok := token.Claims.(*models.MyClaims); ok && token.Valid {
+		return claims.UserID, nil
+	} else {
+		return 0, err
+	}
+}
+
 // HomeHandler はホーム画面の情報を提供するハンドラです。
 func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	// トークンをヘッダーから取得し、ユーザーIDを解析
 	tokenString := c.GetHeader("Authorization")
 	if strings.HasPrefix(tokenString, "Bearer ") {
 		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	}
+
+	var userToken bool = true // トークンがある場合をデフォルトとする
+	// トークンが存在しない場合
+	if tokenString == "" {
+		userToken = false // トークンがないことを示す
+		c.JSON(http.StatusOK, gin.H{
+			"hasToken":    userToken,
+			"hasRoom":     false,
+			"hasRequest":  false,
+			"replyStatus": "none",
+		})
+		return
 	}
 
 	claims := &models.MyClaims{}
@@ -44,8 +93,8 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	hasRoom := user.ValidRoomCount > 0
 	hasRequest := user.ValidRequestCount > 0
 
-	// ユーザーの入室申請のステータスが"accepted"であるかどうかをチェック
 	var acceptedRequestCount int64
+	// ユーザーの入室申請のステータスが"accepted"であるかどうかをチェック
 	err = db.Model(&models.Challenger{}).Where("user_id = ? AND status = 'accepted'", userID).Count(&acceptedRequestCount).Error
 	replyStatus := "none"
 	if err == nil && acceptedRequestCount > 0 {
@@ -53,6 +102,7 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	}
 
 	response := gin.H{
+		"hasToken":    userToken,
 		"hasRoom":     hasRoom,
 		"hasRequest":  hasRequest,
 		"replyStatus": replyStatus,
@@ -60,65 +110,6 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 
 	c.JSON(http.StatusOK, response)
 }
-
-// 	userID := claims.UserID
-// 	var user models.User
-// 	if err := db.First(&user, userID).Error; err != nil {
-// 		logger.Error("Failed to retrieve user", zap.Error(err))
-// 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-// 		return
-// 	}
-
-// 	var hasRoom bool = user.ValidRoomCount > 0
-// 	var hasRequest bool = user.ValidRequestCount > 0
-// 	var challengersCount int64
-// 	var gameRoomIDs []uint
-// 	var roomCount int64
-
-// 	// 24時間以内に更新されたルームのみをカウント
-// 	// GameStateが "created" またはその他アクティブな状態にあるルームのみをカウント
-// 	db.Model(&models.GameRoom{}).
-// 		Where("user_id = ? AND game_state IN ('created', 'active') AND updated_at > ?", userID, time.Now().Add(-24*time.Hour)).
-// 		Count(&roomCount)
-// 	hasRoom = roomCount > 0
-
-// 	// ユーザーが所有するゲームルームに対する"pending"状態の入室申請の数をカウント
-// 	// GameStateが "created" またはその他アクティブな状態にあるルームのみをカウントし、"disabled"は除外
-// 	err = db.Model(&models.Challenger{}).
-// 		Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
-// 		Where("game_rooms.user_id = ? AND challengers.status = ? AND game_rooms.game_state NOT IN ('disabled')", userID, "pending").
-// 		Count(&challengersCount).Error
-
-// 	if err != nil {
-// 		logger.Error("Failed to count pending challengers", zap.Error(err))
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count pending challengers"})
-// 		return
-// 	}
-
-// 	db.Model(&models.GameRoom{}).Where("user_id = ?", userID).Pluck("id", &gameRoomIDs)
-
-// 	// ユーザーが作成したルームに対する入室申請の総数を取得
-// 	if len(gameRoomIDs) > 0 {
-// 		db.Model(&models.Challenger{}).Where("game_room_id IN ?", gameRoomIDs).Count(&challengersCount)
-// 	}
-
-// 	var acceptedRequestCount int64
-// 	// ユーザーが作成した入室申請の中で一つでも"accepted"があるかチェック
-// 	err = db.Model(&models.Challenger{}).Where("user_id = ? AND status = 'accepted'", userID).Count(&acceptedRequestCount).Error
-// 	replyStatus := "none"
-// 	if acceptedRequestCount > 0 {
-// 		replyStatus = "accepted"
-// 	}
-
-// 	response := gin.H{
-// 		"hasRoom":          hasRoom,
-// 		"challengersCount": challengersCount,
-// 		"hasRequest":       hasRequest,
-// 		"replyStatus":      replyStatus,
-// 	}
-
-// 	c.JSON(http.StatusOK, response)
-// }
 
 // ListHandler はリスト画面用のハンドラです。
 func ListHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {

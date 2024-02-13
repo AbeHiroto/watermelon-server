@@ -1,23 +1,23 @@
 package handlers
 
 import (
-	"fmt"
+	//"fmt"
 	"net/http"
-	"strings"
+	//"strings"
 
-	"xicserver/auth"
+	//"xicserver/auth"
 	"xicserver/models"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	jwt "github.com/dgrijalva/jwt-go"
+	//jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 )
 
 // ReplyRequest はリプライリクエストのボディを表す構造体です。
 type ReplyRequest struct {
-	Status string `json:"status"` // "accept"または"reject"
+	Status string `json:"status"` // "accepted"または"rejected"
 }
 
 // ReplyHandler は入室申請に対するリプライ（承認または拒否）を処理します。
@@ -49,7 +49,7 @@ func ReplyHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	}
 
 	// Status属性を更新
-	if replyRequest.Status != "accept" && replyRequest.Status != "reject" {
+	if replyRequest.Status != "accepted" && replyRequest.Status != "rejected" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status value"})
 		return
 	}
@@ -59,39 +59,15 @@ func ReplyHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
+	// "reject"の場合、ValidRequestCountをデクリメント
+	if replyRequest.Status == "rejected" {
+		if err := db.Model(&models.User{}).Where("id = ?", challenger.UserID).Update("valid_request_count", gorm.Expr("valid_request_count - ?", 1)).Error; err != nil {
+			logger.Error("Failed to decrement ValidRequestCount", zap.Error(err))
+			// このエラーは入室申請の状態更新には影響しないため、ユーザーには成功のレスポンスを返しますが、内部ログには記録します。
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Reply successfully processed"})
-}
-
-// DisableMyRequest ハンドラー
-func DisableMyRequest(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
-	// JWTトークンからユーザーIDを取得
-	userID, err := GetUserIDFromToken(c, logger)
-	if err != nil {
-		logger.Error("Failed to get user ID from token", zap.Error(err))
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証に失敗しました"})
-		return
-	}
-
-	// URLパラメータから入室申請IDを取得
-	requestID := c.Param("requestID")
-
-	// 指定された入室申請が存在し、かつユーザーが申請者であることを確認
-	var challenger models.Challenger
-	if err := db.Where("id = ? AND user_id = ?", requestID, userID).First(&challenger).Error; err != nil {
-		logger.Error("Request not found or not owned by the user", zap.Error(err))
-		c.JSON(http.StatusNotFound, gin.H{"error": "申請が見つからないか、あなたのものではありません"})
-		return
-	}
-
-	// Status属性を"disabled"に更新
-	if err := db.Model(&challenger).Update("status", "disabled").Error; err != nil {
-		logger.Error("Failed to disable the request", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "申請の無効化に失敗しました"})
-		return
-	}
-
-	// 成功レスポンス
-	c.JSON(http.StatusOK, gin.H{"message": "申請が無効化されました"})
 }
 
 // RoomDeleteHandler handles the request for deleting a room.
@@ -149,50 +125,22 @@ func RoomDeleteHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		}
 	}
 
+	// GameStateが"disabled"に更新されたルームに対する全ての入室申請のStatusを"disabled"に更新
+	if result.RowsAffected > 0 {
+		err := db.Model(&models.Challenger{}).
+			Where("game_room_id = ?", roomID).
+			Update("status", "disabled").Error
+
+		if err != nil {
+			logger.Error("Failed to update status of challengers", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update challengers' status"})
+			return
+		}
+	}
+
 	// 正常に処理が完了したことをクライアントに通知
 	c.JSON(http.StatusOK, gin.H{
 		"message": "ルームが正常に削除されました",
-	})
-}
-
-// MyRequestHandler handles the request for viewing the status of an application to a room.
-func MyRequestHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
-	// JWTトークンからユーザーIDを取得
-	userID, err := GetUserIDFromToken(c, logger)
-	if err != nil {
-		logger.Error("Failed to get user ID from token", zap.Error(err))
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証に失敗しました"})
-		return
-	}
-
-	// URLパラメータから入室申請IDを取得
-	requestID := c.Param("requestID")
-
-	// 入室申請情報と関連するルーム情報を取得
-	var requestInfo struct {
-		ChallengerNickname string `gorm:"column:challenger_nickname"`
-		RoomCreator        string `gorm:"column:room_creator"`
-		RoomTheme          string `gorm:"column:room_theme"`
-		CreatedAt          string `gorm:"column:created_at"`
-	}
-	err = db.Table("challengers").
-		Select("challengers.challenger_nickname, game_rooms.room_creator, game_rooms.room_theme, challengers.created_at").
-		Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
-		Where("challengers.id = ? AND challengers.user_id = ?", requestID, userID).
-		Scan(&requestInfo).Error
-
-	if err != nil {
-		logger.Error("Failed to retrieve request information", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "申請情報の取得に失敗しました"})
-		return
-	}
-
-	// 取得した情報をレスポンスとして返す
-	c.JSON(http.StatusOK, gin.H{
-		"challengerNickname": requestInfo.ChallengerNickname,
-		"roomCreator":        requestInfo.RoomCreator,
-		"roomTheme":          requestInfo.RoomTheme,
-		"createdAt":          requestInfo.CreatedAt,
 	})
 }
 
@@ -256,40 +204,4 @@ func MyRoomInfoHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		"created_at":  room.CreatedAt,
 		"challengers": challengers,
 	})
-}
-
-// getUserIDFromToken はリクエストからJWTトークンを取得し、ユーザーIDを解析して返します。
-func GetUserIDFromToken(c *gin.Context, logger *zap.Logger) (uint, error) {
-	// トークンをリクエストヘッダーから取得
-	tokenString := c.GetHeader("Authorization")
-
-	// Bearerトークンのプレフィックスを確認し、存在する場合は削除
-	if strings.HasPrefix(tokenString, "Bearer ") {
-		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
-	}
-
-	// ここでtokenStringが空文字列でないことを確認
-	if tokenString == "" {
-		logger.Error("Token string is empty")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Token is required"})
-		return 0, fmt.Errorf("Token is required")
-	}
-
-	// JWTトークンの解析
-	token, err := jwt.ParseWithClaims(tokenString, &models.MyClaims{}, func(token *jwt.Token) (interface{}, error) {
-		// ！！！ここで使用するシークレットキーは、本番環境では環境変数で設定
-		return auth.JwtKey, nil
-	})
-
-	if err != nil {
-		logger.Error("Failed to parse JWT token", zap.Error(err))
-		return 0, err
-	}
-
-	// クレームの検証とユーザーIDの取得
-	if claims, ok := token.Claims.(*models.MyClaims); ok && token.Valid {
-		return claims.UserID, nil
-	} else {
-		return 0, err
-	}
 }

@@ -137,17 +137,36 @@ func scheduleGameStateUpdateAndDeletion(db *gorm.DB) {
 	// GameStateをexpiredに更新するジョブ（毎日特定の時間に実行）
 	c.AddFunc("@daily", func() {
 		logger.Info("GameStateを更新する処理を開始")
+		expiredRooms := []models.GameRoom{}
 		// 24時間更新がないルームをexpiredに更新
 		db.Model(&models.GameRoom{}).
 			Where("game_state = ? AND updated_at <= ?", "created", time.Now().Add(-24*time.Hour)).
 			Update("game_state", "expired")
+
+		// 関連する入室申請のStatusをdisabledに更新
+		for _, room := range expiredRooms {
+			db.Model(&models.Challenger{}).
+				Where("game_room_id = ?", room.ID).
+				Update("status", "disabled")
+		}
 	})
 
-	// expired状態のルームを削除するジョブ（毎日特定の時間に実行）
-	c.AddFunc("@daily", func() {
+	// expired状態のルームを削除するジョブ（"分 時 日 月 曜日"）
+	c.AddFunc("0 3 * * *", func() {
 		logger.Info("expired状態のルームを削除する処理を開始")
-		// 48時間以上expired状態のルームを削除
-		db.Where("game_state = ? AND updated_at <= ?", "expired", time.Now().Add(-48*time.Hour)).Delete(&models.GameRoom{})
+		// expired状態のルームを取得
+		expiredRoomIDs := []uint{}
+		db.Model(&models.GameRoom{}).
+			Where("game_state = ? AND updated_at <= ?", "expired", time.Now().Add(-48*time.Hour)).
+			Pluck("id", &expiredRoomIDs)
+
+		// それぞれのルームに対して入室申請を削除
+		if len(expiredRoomIDs) > 0 {
+			db.Where("game_room_id IN ?", expiredRoomIDs).Delete(&models.Challenger{})
+		}
+
+		// 最後にルーム自体を削除
+		db.Where("id IN ?", expiredRoomIDs).Delete(&models.GameRoom{})
 	})
 
 	c.Start()
