@@ -36,7 +36,7 @@ func ReplyHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
-	requestId := c.Param("requestId")
+	requestId := c.Param("requestID")
 
 	// ルーム作成者としての認証を確認
 	var challenger models.Challenger

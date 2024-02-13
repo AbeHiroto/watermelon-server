@@ -51,10 +51,10 @@ func main() {
 	router.DELETE("/room/:roomID", func(c *gin.Context) {
 		handlers.RoomDeleteHandler(c, db, logger)
 	})
-	router.DELETE("/request/disable/:requestId", func(c *gin.Context) {
+	router.DELETE("/request/disable/:requestID", func(c *gin.Context) {
 		handlers.DisableMyRequest(c, db, logger) // DisableMyRequest ハンドラに db と logger を渡す
 	})
-	router.PUT("/request/reply/:requestId", func(c *gin.Context) {
+	router.PUT("/request/reply/:requestID", func(c *gin.Context) {
 		handlers.ReplyHandler(c, db, logger) // ReplyHandler ハンドラに db と logger を渡す
 	})
 	router.POST("/challenger/create", func(c *gin.Context) {

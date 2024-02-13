@@ -66,6 +66,7 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 			"hasRoom":     false,
 			"hasRequest":  false,
 			"replyStatus": "none",
+			"roomStatus":  "none",
 		})
 		return
 	}
@@ -101,11 +102,35 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		replyStatus = "accepted"
 	}
 
+	// ユーザーが作成したルームに対して"pending"状態の入室申請があるかどうかをチェック
+	var pendingRequestExists bool
+	db.Model(&models.Challenger{}).
+		Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
+		Where("game_rooms.user_id = ? AND challengers.status = 'pending'", userID).
+		Select("count(*) > 0").Find(&pendingRequestExists)
+
+	// ユーザーが作成したルームに対して"accepted"状態の入室申請があるかどうかをチェック
+	var acceptedRequestExists bool
+	db.Model(&models.Challenger{}).
+		Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
+		Where("game_rooms.user_id = ? AND challengers.status = 'accepted'", userID).
+		Select("count(*) > 0").Find(&acceptedRequestExists)
+
+	var roomStatus string
+	if acceptedRequestExists {
+		roomStatus = "sent"
+	} else if pendingRequestExists {
+		roomStatus = "waiting"
+	} else {
+		roomStatus = "none"
+	}
+
 	response := gin.H{
 		"hasToken":    userToken,
 		"hasRoom":     hasRoom,
 		"hasRequest":  hasRequest,
 		"replyStatus": replyStatus,
+		"roomStatus":  roomStatus,
 	}
 
 	c.JSON(http.StatusOK, response)
