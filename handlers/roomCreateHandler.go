@@ -22,6 +22,7 @@ var db *gorm.DB // GORMデータベース接続を保持するグローバル変
 
 var logger *zap.Logger
 
+// これここにあって意味ある？
 func init() {
 	var err error
 	logger, err = zap.NewProduction()

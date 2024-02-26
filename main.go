@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	//"net/http"
 	"fmt"
 	"os"
 	"time"
@@ -13,8 +14,11 @@ import (
 	"xicserver/handlers"
 	"xicserver/models"
 
+	//"xicserver/websocket"
+
 	"github.com/gin-gonic/gin"
 	"github.com/robfig/cron/v3"
+	//"github.com/gorilla/websocket"
 )
 
 var logger *zap.Logger
@@ -60,6 +64,9 @@ func main() {
 	router.POST("/challenger/create", func(c *gin.Context) {
 		handlers.ChallengerHandler(c, db, logger) // ChallengerHandler ハンドラに db と logger を渡す
 	})
+	// router.GET("/ws", func(c *gin.Context) {
+	//     websocket.handleConnections(c.Writer, c.Request)
+	// })
 
 	// HTTPサーバー用。デフォルトポートは ":8080"
 	router.Run()
