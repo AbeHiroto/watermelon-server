@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	//"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,6 +87,52 @@ func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb 
 		return
 	}
 
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		// WebSocket接続のアップグレードに失敗
+		logger.Error("Error upgrading WebSocket", zap.Error(err))
+		http.Error(w, "Error upgrading WebSocket", http.StatusInternalServerError)
+		return
+	}
+
+	client := &Client{Conn: conn, UserID: claims.UserID, RoomID: roomID, Role: role}
+	// セッションIDの検証と復元
+	sessionID := r.Header.Get("SessionID") // クライアントが送るセッションID
+	if sessionID != "" {
+		sessionInfoJSON, err := rdb.Get(ctx, "session:"+sessionID).Result()
+		if err == nil {
+			// Redisから取得したセッション情報をデコード
+			var sessionInfo map[string]uint
+			if err := json.Unmarshal([]byte(sessionInfoJSON), &sessionInfo); err == nil {
+				// セッション情報に基づいてクライアント情報を復元
+				client.UserID = sessionInfo["userID"]
+				client.RoomID = sessionInfo["roomID"]
+				// 旧セッションの削除
+				rdb.Del(ctx, "session:"+sessionID)
+				// 新しいセッションIDの発行と保存
+				generateAndStoreSessionID(client, rdb)
+			} else {
+				// セッション情報の復元に失敗した場合の処理
+				logger.Error("Failed to decode session info", zap.Error(err))
+				http.Error(w, "Failed to restore session", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// セッションIDが無効または期限切れの場合
+			http.Error(w, "Invalid or expired session ID", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	// WebSocketのCloseHandlerを設定
+	client.Conn.SetCloseHandler(func(code int, text string) error {
+		// Closeイベントが発生した時の処理
+		logger.Info("WebSocket closed", zap.Int("code", code), zap.String("reason", text))
+		client.Conn.Close()     // 念のため、接続を閉じる
+		delete(clients, client) // クライアントリストから削除
+		return nil
+	})
+
 	// ロールに基づいてデータベースを照会
 	var accessGranted bool
 	if role == "Creator" {
@@ -107,17 +152,12 @@ func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb 
 		return
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		// WebSocket接続のアップグレードに失敗
-		logger.Error("Error upgrading WebSocket", zap.Error(err))
-		http.Error(w, "Error upgrading WebSocket", http.StatusInternalServerError)
-		return
-	}
-	client := &Client{Conn: conn, UserID: claims.UserID, RoomID: roomID, Role: role}
 	// ここで新しいクライアントを処理（例：クライアントリストに追加）
 	clients[client] = true
 	logger.Info("New client added", zap.Uint("UserID", client.UserID), zap.Uint("RoomID", roomID), zap.String("Role", role))
+
+	// クライアントごとにメッセージ読み取りゴルーチンを起動（）
+	go handleClient(client, clients)
 
 	// Ping/Pongを管理するゴルーチンを起動
 	go func(c *Client) {
@@ -127,15 +167,31 @@ func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb 
 			logger.Info("Client removed", zap.Uint("UserID", c.UserID))
 		}()
 
+		// Pongハンドラの設定: Pongメッセージを受信したら読み取りデッドラインを更新
+		c.Conn.SetPongHandler(func(string) error {
+			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // ここでの60秒は例示的な値
+			return nil
+		})
+
+		// Pingの送信間隔を設定
+		pingPeriod := 10 * time.Second // 10秒ごとにPingを送信
+
+		ticker := time.NewTicker(pingPeriod)
+		defer ticker.Stop()
+
 		for {
-			// Pingを送信
-			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				logger.Error("Error sending ping", zap.Error(err))
-				return // エラーが発生した場合はゴルーチンを終了
+			select {
+			case <-ticker.C:
+				// Pingを送信
+				if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					logger.Error("Error sending ping", zap.Error(err))
+					return // エラーが発生した場合はゴルーチンを終了
+				}
+				// 必要に応じて、他のcase分岐を追加
 			}
 
-			// Pingの送信間隔
-			time.Sleep(10 * time.Second)
+			// 読み取りデッドラインの初期設定（最初のPong待機に使用）
+			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // ここでの60秒は例示的な値
 		}
 	}(client)
 
@@ -192,6 +248,26 @@ func sendErrorMessage(client *Client, errorMessage string) {
 	errorResponse := map[string]string{"error": errorMessage}
 	errorJSON, _ := json.Marshal(errorResponse)
 	client.Conn.WriteMessage(websocket.TextMessage, errorJSON) // Ignoring error for simplicity
+}
+
+func handleClient(client *Client, clients map[*Client]bool) {
+	defer func() {
+		client.Conn.Close()     // クライアントの接続を閉じる
+		delete(clients, client) // クライアントリストからこのクライアントを削除
+	}()
+
+	for {
+		_, message, err := client.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				logger.Error("WebSocket error", zap.Error(err))
+			}
+			break // エラーが発生したらループを抜ける
+		}
+
+		// 受信したメッセージに対する処理
+		logger.Info("Received message", zap.ByteString("message", message))
+	}
 }
 
 // handleMessage handles incoming messages from clients
