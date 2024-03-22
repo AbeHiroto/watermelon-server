@@ -7,7 +7,7 @@ import (
 // User モデルの定義
 type User struct {
 	gorm.Model
-	SubscriptionStatus string `gorm:"not null"`
+	SubscriptionStatus string `gorm:"not null"` //削除を検討する
 	ValidRoomCount     int    `gorm:"not null;default:0"`
 	ValidRequestCount  int    `gorm:"default:0"`
 }

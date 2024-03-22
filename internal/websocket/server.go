@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"math/rand"
 
 	"net/http"
 	"strconv"
@@ -16,30 +17,22 @@ import (
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
-var logger *zap.Logger // Global logger
-var ctx = context.Background()
-var rdb *redis.Client
-
+// clients keeps track of all active clients.
+var clients = make(map[*Client]bool)
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		// ここでオリジンの検証を行うか、全てのオリジンを許可する
+		//// 信頼できるオリジン、つまり自分のドメイン名を指定
+		// allowedOrigin := "https://yourapp.com"
+		// return r.Header.Get("Origin") == allowedOrigin
 		return true
 	},
 }
-
-func InitializeRedis() {
-	rdb = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379", // or your Redis server address
-		Password: "",               // no password set
-		DB:       0,                // use default DB
-	})
-}
+var games = make(map[uint]*Game) // ゲームIDをキーとするゲームインスタンスのマップ
 
 // Client represents a WebSocket client
 type Client struct {
@@ -48,16 +41,33 @@ type Client struct {
 	RoomID uint
 	Role   string // User role (e.g., "creator", "challenger")
 }
+type Game struct {
+	ID          uint
+	Players     [2]*Player
+	CurrentTurn string // "player1" または "player2"
+	Status      string // "waiting", "in progress", "finished" など
+	BribeCounts [2]int // プレイヤー1とプレイヤー2の賄賂回数
+	Bias        int    // 賄賂の度合い。正の値はPlayer1に、負の値はPlayer2に有利
+	RoomTheme   string // ゲームモード
+}
 
-// clients keeps track of all active clients.
-var clients = make(map[*Client]bool)
+type Player struct {
+	ID     uint
+	Symbol string // "X" or "O"
+	Conn   *websocket.Conn
+}
+
+func createLocalRandGenerator() *rand.Rand {
+	source := rand.NewSource(time.Now().UnixNano())
+	return rand.New(source)
+}
 
 // handleConnections handles incoming WebSocket connections
-func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client) {
+func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger) {
 	// JWTトークンをリクエストヘッダーから取得
 	tokenString := r.Header.Get("Authorization")
-	userID := r.Header.Get("UserID") // 仮のヘッダー名、実際には適切なものを設定
-	role := r.Header.Get("Role")     // "Creator" または "Challenger"
+	//userID := r.Header.Get("UserID") // 仮のヘッダー名、実際には適切なものを設定
+	role := r.Header.Get("Role") // "Creator" または "Challenger"
 	// roomIDを文字列からuintに変換
 	roomIDStr := r.Header.Get("RoomID")                     // HTTPヘッダーから文字列としてroomIDを取得
 	roomIDUint, err := strconv.ParseUint(roomIDStr, 10, 32) // 文字列をuintに変換
@@ -110,7 +120,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb 
 				// 旧セッションの削除
 				rdb.Del(ctx, "session:"+sessionID)
 				// 新しいセッションIDの発行と保存
-				generateAndStoreSessionID(client, rdb)
+				generateAndStoreSessionID(r.Context(), client, rdb, logger)
 			} else {
 				// セッション情報の復元に失敗した場合の処理
 				logger.Error("Failed to decode session info", zap.Error(err))
@@ -137,12 +147,12 @@ func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb 
 	var accessGranted bool
 	if role == "Creator" {
 		var gameRoom models.GameRoom
-		if err := db.Where("id = ? AND user_id = ?", roomID, userID).First(&gameRoom).Error; err == nil {
+		if err := db.Where("id = ? AND user_id = ?", roomID, claims.UserID).First(&gameRoom).Error; err == nil {
 			accessGranted = true
 		}
 	} else if role == "Challenger" {
 		var challenger models.Challenger
-		if err := db.Where("game_room_id = ? AND user_id = ? AND status = 'accepted'", roomID, userID).First(&challenger).Error; err == nil {
+		if err := db.Where("game_room_id = ? AND user_id = ? AND status = 'accepted'", roomID, claims.UserID).First(&challenger).Error; err == nil {
 			accessGranted = true
 		}
 	}
@@ -156,8 +166,49 @@ func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb 
 	clients[client] = true
 	logger.Info("New client added", zap.Uint("UserID", client.UserID), zap.Uint("RoomID", roomID), zap.String("Role", role))
 
+	// ゲームインスタンスの検索または作成
+	var game *Game
+	var symbol string
+	// 乱数生成器のインスタンスを生成
+	randGen := createLocalRandGenerator()
+	if existingGame, ok := games[roomID]; ok {
+		// ゲームインスタンスが既に存在する場合、参加
+		game = existingGame
+		// 2人目のプレイヤーとして参加
+		symbol = "O" // 2人目のプレイヤーには "O" を割り当て
+		game.Players[1] = &Player{ID: claims.UserID, Conn: conn, Symbol: symbol}
+		game.Status = "in progress" // ゲームのステータスを更新
+		// 2人目のプレイヤーが参加したので、ランダムに先手を決定
+		if randGen.Intn(2) == 0 {
+			game.CurrentTurn = "player1"
+		} else {
+			game.CurrentTurn = "player2"
+		}
+	} else {
+		var roomTheme string
+		var gameRoom models.GameRoom
+		// ここでDBからGameRoomのインスタンスを取得し、RoomThemeフィールドの値を取得する
+		err := db.Where("id = ?", roomID).First(&gameRoom).Error
+		if err != nil {
+			// データベースからゲームルームの情報を取得できなかった場合
+			logger.Error("Failed to retrieve game room from database", zap.Error(err))
+			http.Error(w, "Failed to retrieve game room information", http.StatusInternalServerError)
+			return
+		}
+		roomTheme = gameRoom.RoomTheme
+		// 新しいゲームインスタンスを作成
+		symbol = "X" // 最初のプレイヤーには "X" を割り当て
+		game = &Game{
+			ID:        roomID,
+			Players:   [2]*Player{{ID: claims.UserID, Conn: conn, Symbol: symbol}, nil},
+			Status:    "waiting",
+			RoomTheme: roomTheme,
+		}
+		games[roomID] = game // ゲームをマップに追加
+	}
+
 	// クライアントごとにメッセージ読み取りゴルーチンを起動（）
-	go handleClient(client, clients)
+	go handleClient(client, clients, logger)
 
 	// Ping/Pongを管理するゴルーチンを起動
 	go func(c *Client) {
@@ -196,81 +247,13 @@ func handleConnections(w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb 
 	}(client)
 
 	// Generate and store session ID, then send it back to the client
-	generateAndStoreSessionID(client, rdb)
+	err = generateAndStoreSessionID(r.Context(), client, rdb, logger)
 	if err != nil {
 		logger.Error("Failed to generate or store session ID", zap.Error(err))
 		// 適切なエラーハンドリング
 	}
 }
 
-func generateAndStoreSessionID(client *Client, rdb *redis.Client) error {
-	sessionID := uuid.New().String()
-
-	// セッション情報をJSON形式でエンコード
-	sessionInfo := map[string]uint{"userID": client.UserID, "roomID": client.RoomID}
-	sessionInfoJSON, err := json.Marshal(sessionInfo)
-	if err != nil {
-		logger.Error("Error encoding session info", zap.Error(err))
-		return err
-	}
-
-	// セッションIDとセッション情報をRedisに保存
-	err = rdb.Set(ctx, "session:"+sessionID, sessionInfoJSON, 24*time.Hour).Err() // 24時間の有効期限
-	if err != nil {
-		logger.Error("Error storing session info in Redis", zap.Error(err))
-		return err
-	}
-
-	// セッションIDをクライアントに送り返す
-	return sendSessionIDToClient(client, sessionID)
-}
-
-func sendSessionIDToClient(client *Client, sessionID string) error {
-	// セッションIDをクライアントに送信するためのレスポンスを作成
-	response := map[string]string{"sessionID": sessionID}
-	responseJSON, err := json.Marshal(response)
-	if err != nil {
-		logger.Error("Error marshalling session ID response", zap.Error(err))
-		return err
-	}
-
-	// クライアントにセッションIDを含むレスポンスを送信
-	if err := client.Conn.WriteMessage(websocket.TextMessage, responseJSON); err != nil {
-		logger.Error("Error sending session ID to client", zap.Error(err))
-		return err
-	}
-
-	return nil
-}
-
-// Helper function to send error message to the client via WebSocket
-func sendErrorMessage(client *Client, errorMessage string) {
-	errorResponse := map[string]string{"error": errorMessage}
-	errorJSON, _ := json.Marshal(errorResponse)
-	client.Conn.WriteMessage(websocket.TextMessage, errorJSON) // Ignoring error for simplicity
-}
-
-func handleClient(client *Client, clients map[*Client]bool) {
-	defer func() {
-		client.Conn.Close()     // クライアントの接続を閉じる
-		delete(clients, client) // クライアントリストからこのクライアントを削除
-	}()
-
-	for {
-		_, message, err := client.Conn.ReadMessage()
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				logger.Error("WebSocket error", zap.Error(err))
-			}
-			break // エラーが発生したらループを抜ける
-		}
-
-		// 受信したメッセージに対する処理
-		logger.Info("Received message", zap.ByteString("message", message))
-	}
-}
-
-// handleMessage handles incoming messages from clients
-func handleMessage(client *Client, messageType int, payload []byte) {
-	// Process message
-}
+// func generateGameID() string {
+// 	return uuid.New().String() // UUIDを生成して返す
+// }

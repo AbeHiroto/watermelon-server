@@ -18,20 +18,18 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-var db *gorm.DB // GORMデータベース接続を保持するグローバル変数
+// var logger *zap.Logger
 
-var logger *zap.Logger
+// // これここにあって意味ある？
+// func init() {
+// 	var err error
+// 	logger, err = zap.NewProduction()
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// }
 
-// これここにあって意味ある？
-func init() {
-	var err error
-	logger, err = zap.NewProduction()
-	if err != nil {
-		panic(err)
-	}
-}
-
-func RoomCreate(c *gin.Context, db *gorm.DB) {
+func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	var request models.RoomCreateRequest
 	var err error
 	if err := c.ShouldBindJSON(&request); err != nil {
