@@ -1,0 +1,268 @@
+package websocket
+
+import (
+	"encoding/json"
+	"math/rand"
+
+	"xicserver/models"
+
+	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+)
+
+func handleMarkCell(client *Client, msg map[string]interface{}, game *Game, games map[uint]*Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
+	// msgからセルの位置を取得
+	x, okX := msg["x"].(int)
+	y, okY := msg["y"].(int)
+	if !okX || !okY || x < 0 || y < 0 || x >= len(game.Board) || y >= len(game.Board[0]) {
+		sendErrorMessage(client, "Invalid cell coordinates")
+		return
+	}
+
+	// 選択されたセルが空かどうかチェック
+	if game.Board[x][y] != "" {
+		sendErrorMessage(client, "Cell is already marked")
+		return
+	}
+
+	// クライアントのUserIDがCurrentTurnと一致するか確認
+	if game.CurrentTurn != client.UserID {
+		sendErrorMessage(client, "Not your turn")
+		return
+	}
+
+	currentPlayerIndex := 0
+	if game.Players[1].ID == client.UserID {
+		currentPlayerIndex = 1
+	}
+	biasAdvantage := game.BiasDegree * (1 - 2*currentPlayerIndex)
+
+	markDecisionMade := false
+	if biasAdvantage > 0 || (biasAdvantage == 0 && randGen.Float32() < 0.3) {
+		// 選択されたセルに印を置く
+		game.Board[x][y] = getCurrentPlayerSymbol(client, game)
+		markDecisionMade = true
+	}
+
+	if !markDecisionMade {
+		// 空のセルのリストを取得し、ランダムに選ぶ
+		emptyCells := getEmptyCellsExcept(game.Board, x, y)
+		if len(emptyCells) > 0 {
+			randIndex := randGen.Intn(len(emptyCells))
+			chosenCell := emptyCells[randIndex]
+			game.Board[chosenCell[0]][chosenCell[1]] = getCurrentPlayerSymbol(client, game)
+			markDecisionMade = true
+		} else {
+			// 空のセルが選択されたセル以外に存在しない場合は、選択されたセルに印を置く
+			game.Board[x][y] = getCurrentPlayerSymbol(client, game)
+			markDecisionMade = true
+		}
+	}
+
+	// 印が確実に置かれた場合にのみ実行する
+	if markDecisionMade {
+		// 審判の状態とカウントダウンを管理
+		if game.RefereeCount > 0 {
+			game.RefereeCount--
+
+			// RefereeCountが0になったらRefereeStatusを"normal"に戻す
+			if game.RefereeCount == 0 && game.RefereeStatus != "normal" {
+				game.RefereeStatus = "normal"
+			}
+		}
+	}
+
+	// 勝敗判定とゲーム状態の更新
+	checkAndUpdateGameStatus(game, client, db, logger)
+}
+
+// 指定されたセルを除いた空のセルのリストを返すヘルパー関数
+func getEmptyCellsExcept(board [][]string, excludeX, excludeY int) [][2]int {
+	var emptyCells [][2]int
+	for i, row := range board {
+		for j, cell := range row {
+			if cell == "" && !(i == excludeX && j == excludeY) {
+				emptyCells = append(emptyCells, [2]int{i, j})
+			}
+		}
+	}
+	return emptyCells
+}
+
+func checkAndUpdateGameStatus(game *Game, client *Client, db *gorm.DB, logger *zap.Logger) {
+	// ボードのサイズに基づいて勝利条件を設定
+	winCondition := 3 // デフォルトは3x3のボードでの勝利条件
+	if len(game.Board) == 5 && len(game.Board[0]) == 5 {
+		winCondition = 4 // 5x5のボードでは勝利条件を4に設定
+	}
+
+	// 現在のプレイヤーのシンボルを取得
+	currentPlayerSymbol := ""
+	for _, player := range game.Players {
+		if player.ID == game.CurrentTurn {
+			currentPlayerSymbol = player.Symbol
+			break
+		}
+	}
+
+	// 勝敗判定
+	var nextRoundStatus string
+	if checkWin(game.Board, currentPlayerSymbol, winCondition) {
+		// 勝者がいる場合
+		game.Winners = append(game.Winners, game.CurrentTurn) // 勝者のIDを追加
+		// 現在のラウンドに応じて次のステータスを設定
+		switch game.Status {
+		case "round1":
+			nextRoundStatus = "round1_finished"
+		case "round2":
+			nextRoundStatus = "round2_finished"
+		case "round3":
+			nextRoundStatus = "finished" // 3回戦が最後なので、ここでゲーム全体を終了
+		}
+	} else if isBoardFull(game.Board) {
+		// ボードが全て埋まっているが、勝者がいない場合（引き分け）
+		game.Winners = append(game.Winners, 0) // 引き分けを示すために特別な値（ここでは0）を追加
+		// 同じく現在のラウンドに応じて次のステータスを設定
+		switch game.Status {
+		case "round1":
+			nextRoundStatus = "round1_finished"
+		case "round2":
+			nextRoundStatus = "round2_finished"
+		case "round3":
+			nextRoundStatus = "finished" // 引き分けでも3回戦が最後
+		}
+	} else {
+		// ゲームが続行する場合、ターン更新
+		if game.CurrentTurn == game.Players[0].ID {
+			game.CurrentTurn = game.Players[1].ID
+		} else {
+			game.CurrentTurn = game.Players[0].ID
+		}
+	}
+
+	// ステータスの更新が必要な場合（勝者が決定した場合や引き分けの場合）のみ、ステータスを更新
+	if nextRoundStatus != "" {
+		game.Status = nextRoundStatus
+		if game.Status == "finished" {
+			// ゲームが終了した場合、データベースのGameStateも更新
+			err := db.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error
+			if err != nil {
+				logger.Error("Failed to update game state in database", zap.Error(err))
+				// 必要に応じてエラーハンドリング
+			}
+			broadcastResults(game, logger)
+		} else {
+			broadcastGameState(game, logger)
+		}
+	} else {
+		// ゲームが続行する場合のみ通常のゲーム状態をブロードキャスト
+		broadcastGameState(game, logger)
+	}
+}
+
+func checkWin(board [][]string, symbol string, winCondition int) bool {
+	size := len(board)
+
+	// 横列のチェック
+	for row := 0; row < size; row++ {
+		count := 0
+		for col := 0; col < size; col++ {
+			if board[row][col] == symbol {
+				count++
+			}
+		}
+		if count == winCondition {
+			return true
+		}
+	}
+
+	// 縦列のチェック
+	for col := 0; col < size; col++ {
+		count := 0
+		for row := 0; row < size; row++ {
+			if board[row][col] == symbol {
+				count++
+			}
+		}
+		if count == winCondition {
+			return true
+		}
+	}
+
+	// 斜め（左上から右下）のチェック
+	count := 0
+	for index := 0; index < size; index++ {
+		if board[index][index] == symbol {
+			count++
+		}
+	}
+	if count == winCondition {
+		return true
+	}
+
+	// 斜め（右上から左下）のチェック
+	count = 0
+	for index := 0; index < size; index++ {
+		if board[index][size-index-1] == symbol {
+			count++
+		}
+	}
+	if count == winCondition {
+		return true
+	}
+
+	return false
+}
+
+// マス目がすべて埋まっているかどうかの確認
+func isBoardFull(board [][]string) bool {
+	for _, row := range board {
+		for _, cell := range row {
+			if cell == "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func broadcastResults(game *Game, logger *zap.Logger) {
+	playersInfo := make([]map[string]interface{}, len(game.Players))
+	for i, player := range game.Players {
+		if player != nil {
+			playersInfo[i] = map[string]interface{}{
+				"id":       player.ID,
+				"nickName": player.NickName,
+				"symbol":   player.Symbol,
+			}
+		}
+	}
+
+	results := map[string]interface{}{
+		"type":          "gameResults",
+		"bribeCounts":   game.BribeCounts,
+		"board":         game.Board,
+		"currentTurn":   game.CurrentTurn,
+		"status":        game.Status,
+		"playersOnline": game.PlayersOnlineStatus,
+		"playersInfo":   playersInfo,
+		"bias":          game.Bias,
+		"refereeStatus": game.RefereeStatus,
+		"winners":       game.Winners,
+	}
+	resultsJSON, err := json.Marshal(results)
+	if err != nil {
+		logger.Error("Failed to marshal game results", zap.Error(err))
+		return
+	}
+
+	// ゲームに参加している全プレイヤーに結果をブロードキャスト
+	for _, player := range game.Players {
+		if player != nil && player.Conn != nil {
+			if err := player.Conn.WriteMessage(websocket.TextMessage, resultsJSON); err != nil {
+				logger.Error("Failed to broadcast game results", zap.Error(err))
+			}
+		}
+	}
+}

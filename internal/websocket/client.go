@@ -2,10 +2,11 @@ package websocket
 
 import (
 	"encoding/json"
-	"time"
+	"math/rand"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // Helper function to send error message to the client via WebSocket
@@ -15,8 +16,16 @@ func sendErrorMessage(client *Client, errorMessage string) {
 	client.Conn.WriteMessage(websocket.TextMessage, errorJSON) // Ignoring error for simplicity
 }
 
+// 現在のプレイヤーのシンボルを取得するヘルパー関数
+func getCurrentPlayerSymbol(client *Client, game *Game) string {
+	if game.Players[0].ID == client.UserID {
+		return game.Players[0].Symbol
+	}
+	return game.Players[1].Symbol
+}
+
 // クライアントごとにメッセージ読み取りするゴルーチン
-func handleClient(client *Client, clients map[*Client]bool, logger *zap.Logger) {
+func handleClient(client *Client, clients map[*Client]bool, games map[uint]*Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
 	defer func() {
 		client.Conn.Close()     // クライアントの接続を閉じる
 		delete(clients, client) // クライアントリストからこのクライアントを削除
@@ -28,7 +37,7 @@ func handleClient(client *Client, clients map[*Client]bool, logger *zap.Logger) 
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				logger.Error("WebSocket error", zap.Error(err))
 			}
-			break // エラーが発生したらループを抜ける
+			break
 		}
 
 		// 受信したメッセージをJSON形式でデコード
@@ -38,66 +47,35 @@ func handleClient(client *Client, clients map[*Client]bool, logger *zap.Logger) 
 			continue
 		}
 
+		game, exists := games[client.RoomID]
+		if !exists {
+			// ゲームが見つからないエラー処理
+			sendErrorMessage(client, "Game not found")
+			continue
+		}
+
 		// メッセージタイプに基づいて適切なアクションを実行
-		switch msg["type"] {
-		case "gameAction":
-			handleGameAction(client, msg, clients, logger)
+		switch msg["type"].(string) {
+		case "markCell", "bribe", "accuse", "retry":
+			// ここでさらにアクションタイプに応じて処理を分岐
+			actionType := msg["actionType"].(string)
+			switch actionType {
+			case "markCell":
+				handleMarkCell(client, msg, game, games, randGen, db, logger)
+			case "bribe":
+				handleBribe(game, client, logger)
+			case "accuse":
+				handleAccuse(game, client, logger)
+			case "retry":
+				// "retry"メッセージタイプの場合、再戦リクエストの処理
+				handleRetry(game, client, msg, logger)
+			default:
+				logger.Info("Unknown action type", zap.String("actionType", actionType))
+			}
 		case "chatMessage":
 			handleChatMessage(client, msg, clients, logger)
 		default:
 			logger.Info("Received unknown message type", zap.Any("message", msg))
 		}
-
-		// // 受信したメッセージに対する処理
-		// logger.Info("Received message", zap.ByteString("message", message))
 	}
 }
-
-// ゲームアクションを処理する関数
-func handleGameAction(client *Client, msg map[string]interface{}, clients map[*Client]bool, logger *zap.Logger) {
-	// ゲームアクションの具体的な処理を実装
-}
-
-// チャットメッセージを処理する関数
-func handleChatMessage(client *Client, msg map[string]interface{}, clients map[*Client]bool, logger *zap.Logger) {
-	// ここではmsgからチャットメッセージを取り出す
-	chatMessage := msg["message"].(string)
-
-	// 現在のタイムスタンプを取得
-	timestamp := time.Now().Format(time.RFC3339)
-
-	logger.Info("Received chat message",
-		zap.String("message", chatMessage),
-		zap.Uint("from", client.UserID),
-		zap.String("timestamp", timestamp),
-	)
-
-	// ゲームルーム内の全クライアントにメッセージをブロードキャストする
-	for c := range clients {
-		// 同じゲームルーム内のクライアントにのみメッセージを送信するロジック
-		if c.RoomID == client.RoomID {
-			message := map[string]interface{}{
-				"type":      "chatMessage",
-				"message":   chatMessage,
-				"from":      client.UserID, // 送信者の識別子
-				"timestamp": timestamp,     // メッセージのタイムスタンプ
-			}
-			messageJSON, _ := json.Marshal(message)
-			if err := c.Conn.WriteMessage(websocket.TextMessage, messageJSON); err != nil {
-				logger.Error("Failed to send chat message",
-					zap.Uint("to", c.UserID),
-					zap.Error(err),
-				)
-			} else {
-				logger.Info("Chat message sent",
-					zap.Uint("to", c.UserID),
-				)
-			}
-		}
-	}
-}
-
-// // handleMessage handles incoming messages from clients
-// func handleMessage(client *Client, messageType int, payload []byte) {
-// 	// Process message
-// }

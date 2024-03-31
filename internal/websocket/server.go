@@ -42,19 +42,27 @@ type Client struct {
 	Role   string // User role (e.g., "creator", "challenger")
 }
 type Game struct {
-	ID          uint
-	Players     [2]*Player
-	CurrentTurn string // "player1" または "player2"
-	Status      string // "waiting", "in progress", "finished" など
-	BribeCounts [2]int // プレイヤー1とプレイヤー2の賄賂回数
-	Bias        int    // 賄賂の度合い。正の値はPlayer1に、負の値はPlayer2に有利
-	RoomTheme   string // ゲームモード
+	ID                  uint
+	Board               [][]string
+	Players             [2]*Player
+	PlayersOnlineStatus map[uint]bool // キー: Player ID, 値: オンライン状態
+	CurrentTurn         uint          // "player1" または "player2"
+	Status              string        // "waiting", "in progress", "finished", "round1", "round2" など
+	BribeCounts         [2]int        // プレイヤー1とプレイヤー2の賄賂回数
+	Bias                string        // "fair" または "biased"、不正の有無
+	BiasDegree          int           // 不正度合い。賄賂の影響による変動値
+	RefereeStatus       string        // 審判の状態（例: "normal", "biased", "sad", "angry"）
+	RefereeCount        uint          // 0以上の場合はRefereeStatusが異常値に固定される
+	RoomTheme           string        // ゲームモード
+	Winners             []uint        // 各ラウンドの勝者のID。3要素までのスライス。引き分けの場合は、0やnil
+	RetryRequests       map[uint]bool // キー: Player ID, 値: 再戦リクエストの有無
 }
 
 type Player struct {
-	ID     uint
-	Symbol string // "X" or "O"
-	Conn   *websocket.Conn
+	ID       uint
+	Symbol   string // "X" or "O"
+	NickName string
+	Conn     *websocket.Conn
 }
 
 func createLocalRandGenerator() *rand.Rand {
@@ -97,6 +105,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// ここでWebSocket接続を確立
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		// WebSocket接続のアップグレードに失敗
@@ -106,6 +115,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	}
 
 	client := &Client{Conn: conn, UserID: claims.UserID, RoomID: roomID, Role: role}
+
 	// セッションIDの検証と復元
 	sessionID := r.Header.Get("SessionID") // クライアントが送るセッションID
 	if sessionID != "" {
@@ -174,19 +184,47 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	if existingGame, ok := games[roomID]; ok {
 		// ゲームインスタンスが既に存在する場合、参加
 		game = existingGame
-		// 2人目のプレイヤーとして参加
-		symbol = "O" // 2人目のプレイヤーには "O" を割り当て
-		game.Players[1] = &Player{ID: claims.UserID, Conn: conn, Symbol: symbol}
-		game.Status = "in progress" // ゲームのステータスを更新
-		// 2人目のプレイヤーが参加したので、ランダムに先手を決定
-		if randGen.Intn(2) == 0 {
-			game.CurrentTurn = "player1"
-		} else {
-			game.CurrentTurn = "player2"
+		// クライアントがゲームにすでに参加しているか確認
+		alreadyJoined := false
+		playerIndex := -1
+		for i, player := range game.Players {
+			if player != nil && player.ID == claims.UserID {
+				alreadyJoined = true
+				playerIndex = i
+				break
+			}
 		}
+		if alreadyJoined {
+			// 既にゲームに参加しているクライアントの再接続処理
+			game.Players[playerIndex].Conn = conn          // 新しいWebSocket接続を設定
+			game.PlayersOnlineStatus[claims.UserID] = true // オンライン状態をtrueに更新
+		} else {
+			// 挑戦者のニックネームを取得
+			var challenger models.Challenger
+			db.Where("game_room_id = ? AND user_id = ?", roomID, claims.UserID).First(&challenger)
+			nickName := challenger.ChallengerNickname // ニックネームを取得
+			// 2人目のプレイヤーとして参加
+			symbol = "O" // 2人目のプレイヤーには "O" を割り当て
+			game.Players[1] = &Player{ID: claims.UserID, Conn: conn, Symbol: symbol, NickName: nickName}
+			game.PlayersOnlineStatus[1] = true // 2人目のプレイヤーをオンラインとしてマーク
+			// 2人目のプレイヤーが参加したので、ランダムに先手を決定
+			if randGen.Intn(2) == 0 {
+				game.CurrentTurn = game.Players[0].ID
+			} else {
+				game.CurrentTurn = game.Players[1].ID
+			}
+		}
+
+		// ゲームの状態をブロードキャスト
+		broadcastGameState(game, logger)
+
 	} else {
+		var boardSize int
 		var roomTheme string
 		var gameRoom models.GameRoom
+		var bias string // "fair"か"biased"
+		var biasDegree int
+		var refereeStatus string
 		// ここでDBからGameRoomのインスタンスを取得し、RoomThemeフィールドの値を取得する
 		err := db.Where("id = ?", roomID).First(&gameRoom).Error
 		if err != nil {
@@ -196,19 +234,65 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			return
 		}
 		roomTheme = gameRoom.RoomTheme
-		// 新しいゲームインスタンスを作成
+		nickName := gameRoom.RoomCreator // ニックネームを取得
+
+		// RoomThemeに基づいて盤面のサイズと不正度合いを設定
+		switch roomTheme {
+		case "3x3_biased":
+			boardSize = 3
+			bias = "biased"
+			biasDegree = 0 // 初期不正度合い
+			refereeStatus = "normal"
+		case "3x3_fair":
+			boardSize = 3
+			bias = "fair"
+			biasDegree = 0
+			refereeStatus = "normal"
+		case "5x5_biased":
+			boardSize = 5
+			bias = "biased"
+			biasDegree = 0
+			refereeStatus = "normal"
+		case "5x5_fair":
+			boardSize = 5
+			bias = "fair"
+			biasDegree = 0
+			refereeStatus = "normal"
+		default:
+			boardSize = 3 // デフォルトは3x3で不正あり
+			bias = "biased"
+			biasDegree = 0
+			refereeStatus = "normal"
+		}
+
+		// ボードの初期化
+		board := make([][]string, boardSize)
+		for i := range board {
+			board[i] = make([]string, boardSize)
+		}
+
 		symbol = "X" // 最初のプレイヤーには "X" を割り当て
 		game = &Game{
-			ID:        roomID,
-			Players:   [2]*Player{{ID: claims.UserID, Conn: conn, Symbol: symbol}, nil},
-			Status:    "waiting",
-			RoomTheme: roomTheme,
+			ID:            roomID,
+			Board:         board,
+			Players:       [2]*Player{{ID: claims.UserID, Conn: conn, Symbol: symbol, NickName: nickName}, nil},
+			Status:        "round1",
+			RoomTheme:     roomTheme,
+			Bias:          bias,
+			BiasDegree:    biasDegree,
+			RefereeStatus: refereeStatus,
 		}
 		games[roomID] = game // ゲームをマップに追加
+
+		game.Players[0] = &Player{ID: claims.UserID, Conn: conn, Symbol: "X", NickName: nickName}
+		game.PlayersOnlineStatus[0] = true // 作成者をオンラインとしてマーク
+
+		// ゲームの状態をブロードキャスト
+		broadcastGameState(game, logger)
 	}
 
 	// クライアントごとにメッセージ読み取りゴルーチンを起動（）
-	go handleClient(client, clients, logger)
+	go handleClient(client, clients, games, randGen, db, logger)
 
 	// Ping/Pongを管理するゴルーチンを起動
 	go func(c *Client) {
@@ -216,11 +300,15 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			c.Conn.Close()     // ゴルーチンが終了する時にWebSocket接続を閉じる
 			delete(clients, c) // クライアントリストから削除
 			logger.Info("Client removed", zap.Uint("UserID", c.UserID))
+			// クライアントが切断されたことを対戦相手に通知
+			notifyOpponentOnlineStatus(c.RoomID, c.UserID, false, clients, logger)
 		}()
 
-		// Pongハンドラの設定: Pongメッセージを受信したら読み取りデッドラインを更新
+		// Pongハンドラの設定: Pongメッセージを受信したら読み取りデッドラインを更新し、オンライン状態を反映
 		c.Conn.SetPongHandler(func(string) error {
-			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // ここでの60秒は例示的な値
+			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // 60秒の読み取りデッドライン
+			// クライアントがオンラインであることを対戦相手に通知
+			notifyOpponentOnlineStatus(c.RoomID, c.UserID, true, clients, logger)
 			return nil
 		})
 
@@ -242,7 +330,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			}
 
 			// 読み取りデッドラインの初期設定（最初のPong待機に使用）
-			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // ここでの60秒は例示的な値
+			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // 60秒の読み取りデッドライン
 		}
 	}(client)
 
@@ -251,6 +339,61 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		logger.Error("Failed to generate or store session ID", zap.Error(err))
 		// 適切なエラーハンドリング
+	}
+}
+
+// ゲームの状態をブロードキャストするヘルパー関数
+func broadcastGameState(game *Game, logger *zap.Logger) {
+	playersInfo := make([]map[string]interface{}, len(game.Players))
+	for i, player := range game.Players {
+		if player != nil {
+			playersInfo[i] = map[string]interface{}{
+				"id":       player.ID,
+				"nickName": player.NickName,
+				"symbol":   player.Symbol,
+			}
+		}
+	}
+
+	gameState := map[string]interface{}{
+		"type":          "gameState",
+		"board":         game.Board,
+		"currentTurn":   game.CurrentTurn,
+		"status":        game.Status,
+		"playersOnline": game.PlayersOnlineStatus,
+		"playersInfo":   playersInfo,
+		"bias":          game.Bias,
+		"refereeStatus": game.RefereeStatus,
+		"winners":       game.Winners,
+	}
+	messageJSON, _ := json.Marshal(gameState)
+
+	for _, player := range game.Players {
+		if player != nil {
+			if err := player.Conn.WriteMessage(websocket.TextMessage, messageJSON); err != nil {
+				logger.Error("Failed to broadcast game state", zap.Error(err))
+			}
+		}
+	}
+}
+
+func notifyOpponentOnlineStatus(roomID uint, userID uint, isOnline bool, clients map[*Client]bool, logger *zap.Logger) {
+	for client := range clients {
+		if client.RoomID == roomID && client.UserID != userID {
+			onlineStatusMessage := map[string]interface{}{
+				"type":     "onlineStatus",
+				"userID":   userID,
+				"isOnline": isOnline,
+			}
+			messageJSON, err := json.Marshal(onlineStatusMessage)
+			if err != nil {
+				logger.Error("Failed to marshal online status message", zap.Error(err))
+				continue
+			}
+			if err := client.Conn.WriteMessage(websocket.TextMessage, messageJSON); err != nil {
+				logger.Error("Failed to send online status message", zap.Error(err))
+			}
+		}
 	}
 }
 
