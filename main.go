@@ -87,6 +87,9 @@ func main() {
 	}
 	//defer db.Close() // データベース接続のクローズ（GORMv2からは不要）
 
+	// スケジューラのセットアップと関数の呼び出し
+	scheduleGameStateUpdateAndDeletion(db, logger)
+
 	router := gin.Default()
 	// Ginのミドルウェアを使用して、dbとrdbを全てのリクエストで利用できるようにする
 	router.Use(func(c *gin.Context) {
@@ -101,40 +104,27 @@ func main() {
 	router.GET("/home", func(c *gin.Context) {
 		handlers.HomeHandler(c, db, logger) // HomeHandler ハンドラに db と logger を渡す
 	})
-	router.GET("/room/:roomID/info", func(c *gin.Context) {
+	router.GET("/room/info", func(c *gin.Context) {
 		handlers.MyRoomInfoHandler(c, db, logger)
 	})
-	router.GET("/request/:requestID/info", func(c *gin.Context) {
-		handlers.MyRequestHandler(c, db, logger)
-	})
-	router.DELETE("/room/:roomID", func(c *gin.Context) {
-		handlers.RoomDeleteHandler(c, db, logger)
-	})
-	router.DELETE("/request/disable/:requestID", func(c *gin.Context) {
-		handlers.DisableMyRequest(c, db, logger) // DisableMyRequest ハンドラに db と logger を渡す
-	})
-	router.PUT("/request/reply/:requestID", func(c *gin.Context) {
+	router.PUT("/request/reply", func(c *gin.Context) {
 		handlers.ReplyHandler(c, db, logger) // ReplyHandler ハンドラに db と logger を渡す
 	})
-	router.POST("/challenger/create", func(c *gin.Context) {
+	router.DELETE("/room", func(c *gin.Context) {
+		handlers.RoomDeleteHandler(c, db, logger)
+	})
+	router.GET("/request/info", func(c *gin.Context) {
+		handlers.MyRequestHandler(c, db, logger)
+	})
+	router.DELETE("/request/disable", func(c *gin.Context) {
+		handlers.DisableMyRequest(c, db, logger) // DisableMyRequest ハンドラに db と logger を渡す
+	})
+	router.POST("/challenger/create/:uniqueToken", func(c *gin.Context) {
 		handlers.ChallengerHandler(c, db, logger) // ChallengerHandler ハンドラに db と logger を渡す
 	})
 	router.GET("/ws", func(c *gin.Context) {
 		websocket.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger)
 	})
-
-	// router.GET("/ws", func(c *gin.Context) {
-	// 	// Contextからdbとrdbを取得
-	// 	db, _ := c.Get("db")
-	// 	rdb, _ := c.Get("rdb")
-
-	// 	// 型アサーションを使用して、正しい型にキャスト
-	// 	dbInstance, _ := db.(*gorm.DB)
-	// 	rdbInstance, _ := rdb.(*redis.Client)
-
-	// 	// 引数として適切に渡す
-	// 	websocket.HandleConnections(c.Request.Context(), c.Writer, c.Request, dbInstance, rdbInstance, logger)
-	// })
 
 	// HTTPサーバー用。デフォルトポートは ":8080"
 	router.Run()
@@ -196,22 +186,35 @@ func initDB(config models.Config) (*gorm.DB, error) {
 const maxRetries = 3                  // 最大再試行回数
 const retryInterval = 5 * time.Second // 再試行間の待機時間
 
-func scheduleGameStateUpdateAndDeletion(db *gorm.DB) {
+func scheduleGameStateUpdateAndDeletion(db *gorm.DB, logger *zap.Logger) {
 	c := cron.New()
 
 	// GameStateをexpiredに更新するジョブ（毎日特定の時間に実行）
 	c.AddFunc("@daily", func() {
 		logger.Info("GameStateを更新する処理を開始")
-		expiredRooms := []models.GameRoom{}
-		// 24時間更新がないルームをexpiredに更新
+		// 24時間更新がないルームをexpiredに更新し、そのIDを取得
+		expiredRoomIDs := []uint{}
 		db.Model(&models.GameRoom{}).
 			Where("game_state = ? AND updated_at <= ?", "created", time.Now().Add(-24*time.Hour)).
+			Pluck("id", &expiredRoomIDs).
 			Update("game_state", "expired")
 
 		// 関連する入室申請のStatusをdisabledに更新
-		for _, room := range expiredRooms {
+		for _, roomID := range expiredRoomIDs {
+			// ルーム作成者のHasRoomをfalseに更新
+			var room models.GameRoom
+			db.First(&room, roomID)
+			db.Model(&models.User{}).Where("id = ?", room.UserID).Update("has_room", false)
+
+			// 申請者のHasRequestをfalseに更新
+			challengers := []models.Challenger{}
+			db.Where("game_room_id = ?", roomID).Find(&challengers)
+			for _, challenger := range challengers {
+				db.Model(&models.User{}).Where("id = ?", challenger.UserID).Update("has_request", false)
+			}
+
 			db.Model(&models.Challenger{}).
-				Where("game_room_id = ?", room.ID).
+				Where("game_room_id = ?", roomID).
 				Update("status", "disabled")
 		}
 	})

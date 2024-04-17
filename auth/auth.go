@@ -6,7 +6,7 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-var JwtKey = []byte("your_secret_key") // 本番環境では安全に管理
+//var JwtKey = []byte("your_secret_key") // 本番環境では安全に管理
 
 func IsValidToken(tokenString string) (bool, error) {
 	claims := &models.MyClaims{}

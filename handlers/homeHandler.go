@@ -91,8 +91,8 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	}
 
 	// ユーザーが作成したルームの有無と入室申請の有無
-	hasRoom := user.ValidRoomCount > 0
-	hasRequest := user.ValidRequestCount > 0
+	hasRoom := user.HasRoom
+	hasRequest := user.HasRequest
 
 	var acceptedRequestCount int64
 	// ユーザーの入室申請のステータスが"accepted"であるかどうかをチェック

@@ -18,17 +18,6 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-// var logger *zap.Logger
-
-// // これここにあって意味ある？
-// func init() {
-// 	var err error
-// 	logger, err = zap.NewProduction()
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// }
-
 func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	var request models.RoomCreateRequest
 	var err error
@@ -119,6 +108,8 @@ func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		}
 		uniqueToken = hex.EncodeToString(bytes) // 16進数の文字列に変換
 
+		// ！ここでGameモデルのURLフィールドにUniqueTokenを追加する
+
 		// 生成されたトークンがデータベース内で既に使用されていないかを確認
 		var exists bool
 		db.Model(&models.GameRoom{}).Select("count(*) > 0").Where("unique_token = ?", uniqueToken).Find(&exists)
@@ -130,36 +121,45 @@ func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 
 	// トークンが有効な場合のみゲームルームを作成
 	if tokenValid {
-		// アクティブなゲームルームの数を確認
-		var count int64
-		db.Model(&models.GameRoom{}).
-			Where("room_creator_id = ? AND game_state IN ('created', 'visitors', 'using')", userID).
-			Count(&count)
-
-		maxRoomCount := 5 // ユーザーごとのゲームルーム作成上限数
-		if count >= int64(maxRoomCount) {
-			// ゲームルーム作成上限に達している場合はエラーを返す
+		// ユーザーが既にゲームルームを持っているか確認
+		var user models.User
+		if err := db.First(&user, userID).Error; err != nil {
+			logger.Error("Failed to fetch user", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "User fetch failed"})
+			return
+		}
+		if user.HasRoom {
+			// すでにゲームルームを持っている場合はエラーを返す
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status": "room_limit",
-				"error":  "Reached the limit of active rooms",
+				"error":  "User already has an active room",
 			})
 			return
 		}
 
+		// ユーザーがゲームルームを持っていなければ新たに作成
 		newGameRoom := models.GameRoom{
-			UserID:      userID, // トークンから取得したユーザーID
+			UserID:      userID,
 			RoomCreator: request.Nickname,
 			GameState:   "created",
 			UniqueToken: uniqueToken,
 			RoomTheme:   request.RoomTheme,
-			// その他の初期値設定...
 		}
 		if err := db.Create(&newGameRoom).Error; err != nil {
 			logger.Error("Failed to create a new game room", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ゲームルーム作成に失敗しました"})
 			return
 		}
-		//ここでゲームルーム作成
+
+		// ゲームルームの作成に成功したので、ユーザーのHasRoomフィールドを更新
+		user.HasRoom = true
+		if err := db.Save(&user).Error; err != nil {
+			logger.Error("Failed to update user's room status", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user room status"})
+			return
+		}
+
+		// 成功レスポンスを返す
 		c.JSON(http.StatusOK, gin.H{
 			"status":      "success",
 			"gameRoomID":  newGameRoom.ID,
@@ -171,20 +171,5 @@ func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 			"status": "no_token",
 			"token":  newToken,
 		})
-	}
-
-	// ゲームルーム作成成功後にユーザーのValidRoomCountをインクリメント
-	var user models.User
-	if err := db.First(&user, userID).Error; err != nil {
-		logger.Error("Failed to fetch user for updating room count", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user room count"})
-		return
-	}
-
-	user.ValidRoomCount += 1
-	if err := db.Save(&user).Error; err != nil {
-		logger.Error("Failed to increment user's valid room count", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to increment room count"})
-		return
 	}
 }

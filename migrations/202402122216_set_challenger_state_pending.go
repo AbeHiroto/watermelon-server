@@ -12,15 +12,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// // データベース設定
-// type Config struct {
-// 	DBHost     string `json:"db_host"`
-// 	DBUser     string `json:"db_user"`
-// 	DBPassword string `json:"db_password"`
-// 	DBName     string `json:"db_name"`
-// 	DBSSLMode  string `json:"db_sslmode"`
-// }
-
 // User モデルの定義
 type User struct {
 	gorm.Model
@@ -81,19 +72,6 @@ func AutoMigrateDB(db *gorm.DB) {
 }
 
 func main() {
-	// // config.jsonからデータベースの設定を読み込み
-	// config := Config{}
-	// configFile, err := ioutil.ReadFile("config.json")
-	// if err != nil {
-	// 	logger.Fatal("Error reading config file", zap.Error(err))
-	// 	return
-	// }
-	// err = json.Unmarshal(configFile, &config)
-	// if err != nil {
-	// 	logger.Fatal("Error parsing config file", zap.Error(err))
-	// 	return
-	// }
-
 	// 環境変数からデータベースの接続情報を取得
 	host := os.Getenv("DB_HOST")
 	user := os.Getenv("DB_USER")

@@ -8,8 +8,8 @@ import (
 type User struct {
 	gorm.Model
 	SubscriptionStatus string `gorm:"not null"` //削除を検討する
-	ValidRoomCount     int    `gorm:"not null;default:0"`
-	ValidRequestCount  int    `gorm:"default:0"`
+	HasRoom            bool   `gorm:"not null;default:false"`
+	HasRequest         bool   `gorm:"not null;default:false"`
 }
 
 // GameRoom モデルの定義

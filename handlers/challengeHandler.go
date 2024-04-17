@@ -16,13 +16,25 @@ import (
 
 // ChallengerRequest は入室申請リクエストのボディを表す構造体です。
 type ChallengerRequest struct {
-	GameRoomID         uint   `json:"gameRoomId"`         // 申請するゲームルームのID
+	// 申請するゲームルームのID. URLパラメータを使用してゲームルームの特定を行うため不要
+	//GameRoomID         uint   `json:"gameRoomId"`
 	Nickname           string `json:"nickname"`           // 入室申請者のニックネーム
 	SubscriptionStatus string `json:"subscriptionStatus"` // 課金ステータス
 }
 
 // ChallengerHandler は入室申請を処理するハンドラです。
 func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
+	uniqueToken := c.Param("uniqueToken") // URLからUniqueTokenを取得
+
+	// UniqueTokenを使用してGameRoomを検索
+	var gameRoom models.GameRoom
+	if err := db.Where("unique_token = ?", uniqueToken).First(&gameRoom).Error; err != nil {
+		logger.Error("GameRoom not found with unique token", zap.Error(err))
+		c.JSON(http.StatusNotFound, gin.H{"error": "GameRoom not found"})
+		return
+	}
+
+	// リクエストからニックネームを取得（その他のユーザー情報もここで取得可能）
 	var request ChallengerRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		logger.Error("Request binding error", zap.Error(err))
@@ -85,22 +97,21 @@ func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	}
 
 	if tokenValid {
-		// アクティブな入室申請の数を確認
-		var count int64
-		db.Model(&models.Challenger{}).
-			Where("user_id = ? AND status = 'pending'", userID).
-			Count(&count)
-
-		maxRequestCount := 5 // ユーザーごとの入室申請上限数
-		if count >= int64(maxRequestCount) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Reached the limit of active requests"})
+		var user models.User
+		if err := db.First(&user, userID).Error; err != nil {
+			logger.Error("Failed to fetch user", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user data"})
+			return
+		}
+		if user.HasRequest {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "You already have an active request"})
 			return
 		}
 
 		// 新しい入室申請を作成
 		newChallenger := models.Challenger{
 			UserID:             userID,
-			GameRoomID:         request.GameRoomID,
+			GameRoomID:         gameRoom.ID,
 			ChallengerNickname: request.Nickname, // ニックネームを設定
 			Status:             "pending",        // デフォルトは"pending"
 		}
@@ -110,12 +121,14 @@ func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 			return
 		}
 
-		// 入室申請作成後にユーザーのValidRequestCountをインクリメント
-		if err := db.Model(&models.User{}).Where("id = ?", userID).Update("valid_request_count", gorm.Expr("valid_request_count + ?", 1)).Error; err != nil {
-			logger.Error("Failed to increment ValidRequestCount", zap.Error(err))
-			// このエラーは入室申請の作成には影響しないため、ユーザーには成功のレスポンスを返しますが、内部ログには記録します。
+		// 入室申請作成後にユーザーのHasRequestをtrueに更新
+		if err := db.Model(&models.User{}).Where("id = ?", userID).Update("has_request", true).Error; err != nil {
+			logger.Error("Failed to update user's has_request", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update request status"})
+			return
 		}
 
+		// リクエストが成功した場合のレスポンス
 		c.JSON(http.StatusCreated, gin.H{
 			"message":   "Request successfully created",
 			"requestId": newChallenger.ID,

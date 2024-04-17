@@ -145,20 +145,65 @@ func checkAndUpdateGameStatus(game *Game, client *Client, db *gorm.DB, logger *z
 	if nextRoundStatus != "" {
 		game.Status = nextRoundStatus
 		if game.Status == "finished" {
-			// ゲームが終了した場合、データベースのGameStateも更新
-			err := db.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error
+			err := db.Transaction(func(tx *gorm.DB) error {
+				// Update game state in the database
+				if err := tx.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error; err != nil {
+					return err
+				}
+
+				// Update the room creator's HasRoom to false
+				var gameRoom models.GameRoom
+				if err := tx.Where("id = ?", game.ID).First(&gameRoom).Error; err != nil {
+					return err
+				}
+
+				if err := tx.Model(&models.User{}).Where("id = ?", gameRoom.UserID).Update("has_room", false).Error; err != nil {
+					return err
+				}
+
+				// Find all users with 'accepted' requests for this room and update their HasRequest to false
+				var challengers []models.Challenger
+				if err := tx.Where("game_room_id = ? AND status = 'accepted'", gameRoom.ID).Find(&challengers).Error; err != nil {
+					return err
+				}
+
+				for _, challenger := range challengers {
+					if err := tx.Model(&models.User{}).Where("id = ?", challenger.UserID).Update("has_request", false).Error; err != nil {
+						return err
+					}
+				}
+
+				return nil
+			})
+
 			if err != nil {
-				logger.Error("Failed to update game state in database", zap.Error(err))
-				// 必要に応じてエラーハンドリング
+				logger.Error("Failed to finalize game room updates", zap.Error(err))
+			} else {
+				broadcastResults(game, logger) // Only broadcast results if transaction was successful
 			}
-			broadcastResults(game, logger)
 		} else {
 			broadcastGameState(game, logger)
 		}
 	} else {
-		// ゲームが続行する場合のみ通常のゲーム状態をブロードキャスト
 		broadcastGameState(game, logger)
 	}
+	// if nextRoundStatus != "" {
+	// 	game.Status = nextRoundStatus
+	// 	if game.Status == "finished" {
+	// 		// ゲームが終了した場合、データベースのGameStateも更新
+	// 		err := db.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error
+	// 		if err != nil {
+	// 			logger.Error("Failed to update game state in database", zap.Error(err))
+	// 			// 必要に応じてエラーハンドリング
+	// 		}
+	// 		broadcastResults(game, logger)
+	// 	} else {
+	// 		broadcastGameState(game, logger)
+	// 	}
+	// } else {
+	// 	// ゲームが続行する場合のみ通常のゲーム状態をブロードキャスト
+	// 	broadcastGameState(game, logger)
+	// }
 }
 
 func checkWin(board [][]string, symbol string, winCondition int) bool {
