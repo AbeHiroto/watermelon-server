@@ -31,7 +31,7 @@ func LoadConfig(filename string) (models.Config, error) {
 }
 
 // initDB initializes the database connection
-func InitDB(config models.Config, logger *zap.Logger) (*gorm.DB, error) {
+func InitPostgreSQL(config models.Config, logger *zap.Logger) (*gorm.DB, error) {
 	dsn := fmt.Sprintf("host=%s user=%s dbname=%s password=%s sslmode=%s",
 		config.DBHost, config.DBUser, config.DBName, config.DBPassword, config.DBSSLMode)
 
@@ -50,7 +50,7 @@ func InitDB(config models.Config, logger *zap.Logger) (*gorm.DB, error) {
 }
 
 // InitializeRedis now returns a *redis.Client and error
-func InitializeRedis(logger *zap.Logger) (*redis.Client, error) {
+func InitRedis(logger *zap.Logger) (*redis.Client, error) {
 	// 環境変数からRedis接続情報を取得
 	redisAddr := os.Getenv("REDIS_ADDR")
 	if redisAddr == "" {

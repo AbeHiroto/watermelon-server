@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"go.uber.org/zap"
 
 	"xicserver/bribe/websocket" //BRIBEの実際のゲームロジック
@@ -8,47 +10,73 @@ import (
 	"xicserver/handlers" //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
 	"xicserver/utils"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
+	"gorm.io/gorm"
 )
 
 func main() {
 	// ロガーの初期化
-	logger, err := utils.InitLogger()
+	var logger *zap.Logger
+	var err error
+	logger, err = utils.InitLogger()
 	if err != nil {
-		panic(err) // ロガーの初期化に失敗した場合はプログラムを停止
+		panic(err) // 失敗した場合はプログラムを停止
 	}
 	defer logger.Sync() // ロガーのクリーンアップ
 
-	// 開発用設定ファイル"config.json"の読み込み
-	config, err := database.LoadConfig("config.json")
-	if err != nil {
-		logger.Fatal("設定ファイルの読み込みに失敗しました", zap.Error(err))
-	}
+	// 非同期でPostgreSQLとRedisの初期化
+	var db *gorm.DB
+	var rdb *redis.Client
+	done := make(chan bool)
 
-	// PostgreSQLの初期化
-	db, err := database.InitDB(config, logger)
-	if err != nil {
-		logger.Fatal("データベースの初期化に失敗しました", zap.Error(err))
-	}
-	//defer db.Close() // データベース接続のクローズ（GORMv2からは不要）
+	go func() {
+		config, err := database.LoadConfig("config.json")
+		if err != nil {
+			logger.Fatal("設定ファイルの読み込みに失敗しました", zap.Error(err))
+		}
+		db, err = database.InitPostgreSQL(config, logger)
+		if err != nil {
+			logger.Fatal("データベースの初期化に失敗しました", zap.Error(err))
+		}
+		done <- true
+	}()
 
-	// Redisの初期化
-	rdb, err := database.InitializeRedis(logger)
-	if err != nil {
-		logger.Fatal("Failed to initialize Redis", zap.Error(err))
-	}
+	go func() {
+		rdb, err = database.InitRedis(logger)
+		if err != nil {
+			logger.Fatal("Failed to initialize Redis", zap.Error(err))
+		}
+		done <- true
+	}()
 
-	// スケジューラのセットアップと関数の呼び出し
-	utils.Cleaner(db, logger)
+	// 2つの初期化が完了するのを待つ
+	<-done
+	<-done
+
+	// スケジューラのセットアップと呼び出し
+	go utils.CronCleaner(db, logger)
 
 	router := gin.Default()
-	// Ginのミドルウェアを使用して、dbとrdbを全てのリクエストで利用できるようにする
+	// dbとrdbを全てのリクエストで利用できるようにする
 	router.Use(func(c *gin.Context) {
 		c.Set("db", db)
 		c.Set("rdb", rdb)
 		c.Next()
 	})
+	//リクエストロガーを起動
 	router.Use(gin.Recovery(), utils.RequestLogger(logger))
+
+	//CORS（Cross-Origin Resource Sharing）ポリシーを設定
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://192.168.1.1:8080"}, //ここにデプロイサーバーのIPアドレスを設定
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	//各HTTPリクエストのルーティング
 	router.POST("/create", func(c *gin.Context) {

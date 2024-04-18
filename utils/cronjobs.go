@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func Cleaner(db *gorm.DB, logger *zap.Logger) {
+func CronCleaner(db *gorm.DB, logger *zap.Logger) {
 	c := cron.New()
 
 	// GameStateをexpiredに更新するジョブ（毎日特定の時間に実行）
