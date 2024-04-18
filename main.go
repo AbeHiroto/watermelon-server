@@ -1,9 +1,8 @@
 package main
 
 import (
-	"encoding/json"
-	//"net/http"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,14 +12,13 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"xicserver/handlers"
-	"xicserver/internal/websocket"
+	"xicserver/bribe/websocket" //BRIBEの実際のゲームロジック
+	"xicserver/handlers"        //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
 	"xicserver/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/robfig/cron/v3"
-	//"github.com/gorilla/websocket"
 )
 
 var logger *zap.Logger
@@ -102,13 +100,13 @@ func main() {
 		handlers.RoomCreate(c, db, logger)
 	})
 	router.GET("/home", func(c *gin.Context) {
-		handlers.HomeHandler(c, db, logger) // HomeHandler ハンドラに db と logger を渡す
+		handlers.HomeHandler(c, db, logger)
 	})
 	router.GET("/room/info", func(c *gin.Context) {
 		handlers.MyRoomInfoHandler(c, db, logger)
 	})
 	router.PUT("/request/reply", func(c *gin.Context) {
-		handlers.ReplyHandler(c, db, logger) // ReplyHandler ハンドラに db と logger を渡す
+		handlers.ReplyHandler(c, db, logger)
 	})
 	router.DELETE("/room", func(c *gin.Context) {
 		handlers.RoomDeleteHandler(c, db, logger)
@@ -117,19 +115,19 @@ func main() {
 		handlers.MyRequestHandler(c, db, logger)
 	})
 	router.DELETE("/request/disable", func(c *gin.Context) {
-		handlers.DisableMyRequest(c, db, logger) // DisableMyRequest ハンドラに db と logger を渡す
+		handlers.DisableMyRequest(c, db, logger)
 	})
 	router.POST("/challenger/create/:uniqueToken", func(c *gin.Context) {
-		handlers.ChallengerHandler(c, db, logger) // ChallengerHandler ハンドラに db と logger を渡す
+		handlers.ChallengerHandler(c, db, logger)
 	})
 	router.GET("/ws", func(c *gin.Context) {
 		websocket.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger)
 	})
 
-	// HTTPサーバー用。デフォルトポートは ":8080"
+	// テスト時はHTTPサーバーとして運用。デフォルトポートは ":8080"
 	router.Run()
 
-	// // HTTPSサーバーの起動
+	// // 本番環境ではコメントアウトを解除し、HTTPSサーバーとして運用
 	// err = router.RunTLS(":443", "path/to/cert.pem", "path/to/key.pem")
 	// if err != nil {
 	// 	logger.Fatal("Failed to run HTTPS server: ", zap.Error(err))
