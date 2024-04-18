@@ -16,8 +16,6 @@ import (
 
 // ChallengerRequest は入室申請リクエストのボディを表す構造体です。
 type ChallengerRequest struct {
-	// 申請するゲームルームのID. URLパラメータを使用してゲームルームの特定を行うため不要
-	//GameRoomID         uint   `json:"gameRoomId"`
 	Nickname           string `json:"nickname"`           // 入室申請者のニックネーム
 	SubscriptionStatus string `json:"subscriptionStatus"` // 課金ステータス
 }

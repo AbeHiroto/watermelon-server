@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func handleMarkCell(client *Client, msg map[string]interface{}, game *Game, games map[uint]*Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
+func handleMarkCell(client *Client, msg map[string]interface{}, game *Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
 	// msgからセルの位置を取得
 	x, okX := msg["x"].(int)
 	y, okY := msg["y"].(int)
@@ -74,7 +74,7 @@ func handleMarkCell(client *Client, msg map[string]interface{}, game *Game, game
 	}
 
 	// 勝敗判定とゲーム状態の更新
-	checkAndUpdateGameStatus(game, client, db, logger)
+	checkAndUpdateGameStatus(game, db, logger)
 }
 
 // 指定されたセルを除いた空のセルのリストを返すヘルパー関数
@@ -90,7 +90,7 @@ func getEmptyCellsExcept(board [][]string, excludeX, excludeY int) [][2]int {
 	return emptyCells
 }
 
-func checkAndUpdateGameStatus(game *Game, client *Client, db *gorm.DB, logger *zap.Logger) {
+func checkAndUpdateGameStatus(game *Game, db *gorm.DB, logger *zap.Logger) {
 	// ボードのサイズに基づいて勝利条件を設定
 	winCondition := 3 // デフォルトは3x3のボードでの勝利条件
 	if len(game.Board) == 5 && len(game.Board[0]) == 5 {
@@ -187,23 +187,6 @@ func checkAndUpdateGameStatus(game *Game, client *Client, db *gorm.DB, logger *z
 	} else {
 		broadcastGameState(game, logger)
 	}
-	// if nextRoundStatus != "" {
-	// 	game.Status = nextRoundStatus
-	// 	if game.Status == "finished" {
-	// 		// ゲームが終了した場合、データベースのGameStateも更新
-	// 		err := db.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error
-	// 		if err != nil {
-	// 			logger.Error("Failed to update game state in database", zap.Error(err))
-	// 			// 必要に応じてエラーハンドリング
-	// 		}
-	// 		broadcastResults(game, logger)
-	// 	} else {
-	// 		broadcastGameState(game, logger)
-	// 	}
-	// } else {
-	// 	// ゲームが続行する場合のみ通常のゲーム状態をブロードキャスト
-	// 	broadcastGameState(game, logger)
-	// }
 }
 
 func checkWin(board [][]string, symbol string, winCondition int) bool {

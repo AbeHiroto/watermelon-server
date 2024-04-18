@@ -61,7 +61,7 @@ func handleClient(client *Client, clients map[*Client]bool, games map[uint]*Game
 			actionType := msg["actionType"].(string)
 			switch actionType {
 			case "markCell":
-				handleMarkCell(client, msg, game, games, randGen, db, logger)
+				handleMarkCell(client, msg, game, randGen, db, logger)
 			case "bribe":
 				handleBribe(game, client, logger)
 			case "accuse":

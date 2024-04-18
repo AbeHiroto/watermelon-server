@@ -1,17 +1,14 @@
 package handlers
 
 import (
-	//"fmt"
 	"net/http"
-	//"strings"
 
-	//"xicserver/auth"
+	"xicserver/middlewares"
 	"xicserver/models"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	//jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 )
 
@@ -30,7 +27,7 @@ func ReplyHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	}
 
 	// ユーザーIDをトークンから取得
-	userID, err := GetUserIDFromToken(c, logger)
+	userID, err := middlewares.GetUserIDFromToken(c, logger)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 		return
@@ -71,7 +68,7 @@ func ReplyHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 // RoomDeleteHandler handles the request for deleting a room.
 func RoomDeleteHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	// JWTトークンからユーザーIDを取得
-	userID, err := GetUserIDFromToken(c, logger)
+	userID, err := middlewares.GetUserIDFromToken(c, logger)
 	if err != nil {
 		logger.Error("Failed to get user ID from token", zap.Error(err))
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -140,7 +137,7 @@ func RoomDeleteHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 // ルームを作成したユーザーのホーム画面に表示される情報を取得するハンドラー
 func MyRoomInfoHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	// JWTトークンからユーザーIDを取得
-	userID, err := GetUserIDFromToken(c, logger)
+	userID, err := middlewares.GetUserIDFromToken(c, logger)
 	if err != nil {
 		logger.Error("Failed to get user ID from token", zap.Error(err))
 		c.JSON(http.StatusUnauthorized, gin.H{

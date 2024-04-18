@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"xicserver/middlewares"
 	"xicserver/models"
 
 	"go.uber.org/zap"
@@ -14,7 +15,7 @@ import (
 // DisableMyRequest ハンドラー
 func DisableMyRequest(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	// JWTトークンからユーザーIDを取得
-	userID, err := GetUserIDFromToken(c, logger)
+	userID, err := middlewares.GetUserIDFromToken(c, logger)
 	if err != nil {
 		logger.Error("Failed to get user ID from token", zap.Error(err))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証に失敗しました"})
@@ -52,7 +53,7 @@ func DisableMyRequest(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 // MyRequestHandler handles the request for viewing the status of an application to a room.
 func MyRequestHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	// JWTトークンからユーザーIDを取得
-	userID, err := GetUserIDFromToken(c, logger)
+	userID, err := middlewares.GetUserIDFromToken(c, logger)
 	if err != nil {
 		logger.Error("Failed to get user ID from token", zap.Error(err))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証に失敗しました"})
