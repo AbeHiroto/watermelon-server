@@ -4,20 +4,22 @@ import (
 	"encoding/json"
 	"math/rand"
 
+	"xicserver/models"
+
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
 // Helper function to send error message to the client via WebSocket
-func sendErrorMessage(client *Client, errorMessage string) {
+func sendErrorMessage(client *models.Client, errorMessage string) {
 	errorResponse := map[string]string{"error": errorMessage}
 	errorJSON, _ := json.Marshal(errorResponse)
 	client.Conn.WriteMessage(websocket.TextMessage, errorJSON) // Ignoring error for simplicity
 }
 
 // 現在のプレイヤーのシンボルを取得するヘルパー関数
-func getCurrentPlayerSymbol(client *Client, game *Game) string {
+func getCurrentPlayerSymbol(client *models.Client, game *models.Game) string {
 	if game.Players[0].ID == client.UserID {
 		return game.Players[0].Symbol
 	}
@@ -25,7 +27,7 @@ func getCurrentPlayerSymbol(client *Client, game *Game) string {
 }
 
 // クライアントごとにメッセージ読み取りするゴルーチン
-func handleClient(client *Client, clients map[*Client]bool, games map[uint]*Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
+func handleClient(client *models.Client, clients map[*models.Client]bool, games map[uint]*models.Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
 	defer func() {
 		client.Conn.Close()     // クライアントの接続を閉じる
 		delete(clients, client) // クライアントリストからこのクライアントを削除
@@ -68,7 +70,7 @@ func handleClient(client *Client, clients map[*Client]bool, games map[uint]*Game
 				handleAccuse(game, client, logger)
 			case "retry":
 				// "retry"メッセージタイプの場合、再戦リクエストの処理
-				handleRetry(game, client, msg, logger)
+				handleRetry(game, client, clients, msg, logger)
 			default:
 				logger.Info("Unknown action type", zap.String("actionType", actionType))
 			}

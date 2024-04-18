@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"time"
 
+	"xicserver/models"
+
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
 
 // チャットメッセージを処理する関数
-func handleChatMessage(client *Client, msg map[string]interface{}, clients map[*Client]bool, logger *zap.Logger) {
+func handleChatMessage(client *models.Client, msg map[string]interface{}, clients map[*models.Client]bool, logger *zap.Logger) {
 	// ここではmsgからチャットメッセージを取り出す
 	chatMessage := msg["message"].(string)
 

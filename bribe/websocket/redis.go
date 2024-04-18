@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"xicserver/models"
+
 	"go.uber.org/zap"
 
 	"github.com/go-redis/redis/v8"
@@ -12,7 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func generateAndStoreSessionID(ctx context.Context, client *Client, rdb *redis.Client, logger *zap.Logger) error {
+func generateAndStoreSessionID(ctx context.Context, client *models.Client, rdb *redis.Client, logger *zap.Logger) error {
 	sessionID := uuid.New().String()
 
 	// セッション情報をJSON形式でエンコード
@@ -39,7 +41,7 @@ func generateAndStoreSessionID(ctx context.Context, client *Client, rdb *redis.C
 	return sendSessionIDToClient(client, sessionID, logger)
 }
 
-func sendSessionIDToClient(client *Client, sessionID string, logger *zap.Logger) error {
+func sendSessionIDToClient(client *models.Client, sessionID string, logger *zap.Logger) error {
 	// セッションIDをクライアントに送信するためのレスポンスを作成
 	response := map[string]string{"sessionID": sessionID}
 	responseJSON, err := json.Marshal(response)

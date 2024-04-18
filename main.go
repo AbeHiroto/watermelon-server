@@ -1,18 +1,21 @@
 package main
 
 import (
+	"net/http"
 	"time"
 
 	"go.uber.org/zap"
 
-	"xicserver/bribe/websocket" //BRIBEの実際のゲームロジック
-	"xicserver/database"
-	"xicserver/handlers" //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
-	"xicserver/utils"
+	bribeWebsocket "xicserver/bribe/websocket" //BRIBEのゲームロジック（コンフリクト回避のためエイリアス使用）
+	"xicserver/database"                       //PostgreSQLとRedisの初期化
+	"xicserver/handlers"                       //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
+	"xicserver/models"                         //モデル定義
+	"xicserver/utils"                          //ロガーの初期化とCronジョブ
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
@@ -25,6 +28,17 @@ func main() {
 		panic(err) // 失敗した場合はプログラムを停止
 	}
 	defer logger.Sync() // ロガーのクリーンアップ
+
+	// Websocket接続で用いる変数を初期化
+	clients := make(map[*models.Client]bool)
+	games := make(map[uint]*models.Game)
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
 
 	// 非同期でPostgreSQLとRedisの初期化
 	var db *gorm.DB
@@ -104,7 +118,7 @@ func main() {
 		handlers.ChallengerHandler(c, db, logger)
 	})
 	router.GET("/ws", func(c *gin.Context) {
-		websocket.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger)
+		bribeWebsocket.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
 	})
 
 	// テスト時はHTTPサーバーとして運用。デフォルトポートは ":8080"

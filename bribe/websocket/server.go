@@ -20,58 +20,47 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// clients keeps track of all active clients.
-var clients = make(map[*Client]bool)
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		//// 信頼できるオリジン、つまり自分のドメイン名を指定
-		// allowedOrigin := "https://yourapp.com"
-		// return r.Header.Get("Origin") == allowedOrigin
-		return true
-	},
-}
-var games = make(map[uint]*Game) // ゲームIDをキーとするゲームインスタンスのマップ
+// // Websocketクライアントを定義
+// type Client struct {
+// 	Conn   *websocket.Conn
+// 	UserID uint // JWTから抽出したユーザーID
+// 	RoomID uint
+// 	Role   string // User role (e.g., "creator", "challenger")
+// }
 
-// Client represents a WebSocket client
-type Client struct {
-	Conn   *websocket.Conn
-	UserID uint // JWTから抽出したユーザーID
-	RoomID uint
-	Role   string // User role (e.g., "creator", "challenger")
-}
-type Game struct {
-	ID                  uint
-	Board               [][]string
-	Players             [2]*Player
-	PlayersOnlineStatus map[uint]bool // キー: Player ID, 値: オンライン状態
-	CurrentTurn         uint          // "player1" または "player2"
-	Status              string        // "waiting", "in progress", "finished", "round1", "round2" など
-	BribeCounts         [2]int        // プレイヤー1とプレイヤー2の賄賂回数
-	Bias                string        // "fair" または "biased"、不正の有無
-	BiasDegree          int           // 不正度合い。賄賂の影響による変動値
-	RefereeStatus       string        // 審判の状態（例: "normal", "biased", "sad", "angry"）
-	RefereeCount        uint          // 0以上の場合はRefereeStatusが異常値に固定される
-	RoomTheme           string        // ゲームモード
-	Winners             []uint        // 各ラウンドの勝者のID。3要素までのスライス。引き分けの場合は、0やnil
-	RetryRequests       map[uint]bool // キー: Player ID, 値: 再戦リクエストの有無
-}
+// // 各ゲームのインスタンス
+// type Game struct {
+// 	ID                  uint
+// 	Board               [][]string
+// 	Players             [2]*Player
+// 	PlayersOnlineStatus map[uint]bool // キー: Player ID, 値: オンライン状態
+// 	CurrentTurn         uint          // "player1" または "player2"
+// 	Status              string        // "waiting", "in progress", "finished", "round1", "round2" など
+// 	BribeCounts         [2]int        // プレイヤー1とプレイヤー2の賄賂回数
+// 	Bias                string        // "fair" または "biased"、不正の有無
+// 	BiasDegree          int           // 不正度合い。賄賂の影響による変動値
+// 	RefereeStatus       string        // 審判の状態（例: "normal", "biased", "sad", "angry"）
+// 	RefereeCount        uint          // 0以上の場合はRefereeStatusが異常値に固定される
+// 	RoomTheme           string        // ゲームモード
+// 	Winners             []uint        // 各ラウンドの勝者のID。3要素までのスライス。引き分けの場合は、0やnil
+// 	RetryRequests       map[uint]bool // キー: Player ID, 値: 再戦リクエストの有無
+// }
 
-type Player struct {
-	ID       uint
-	Symbol   string // "X" or "O"
-	NickName string
-	Conn     *websocket.Conn
-}
+// // PlayerはUserに紐づく
+// type Player struct {
+// 	ID       uint
+// 	Symbol   string // "X" or "O"
+// 	NickName string
+// 	Conn     *websocket.Conn
+// }
 
 func createLocalRandGenerator() *rand.Rand {
 	source := rand.NewSource(time.Now().UnixNano())
 	return rand.New(source)
 }
 
-// handleConnections handles incoming WebSocket connections
-func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger) {
+// WebSocket接続へのアップグレード
+func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, clients map[*models.Client]bool, games map[uint]*models.Game, upgrader websocket.Upgrader) {
 	// JWTトークンをリクエストヘッダーから取得
 	tokenString := r.Header.Get("Authorization")
 	//userID := r.Header.Get("UserID") // 仮のヘッダー名、実際には適切なものを設定
@@ -114,7 +103,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	client := &Client{Conn: conn, UserID: claims.UserID, RoomID: roomID, Role: role}
+	client := &models.Client{Conn: conn, UserID: claims.UserID, RoomID: roomID, Role: role}
 
 	// セッションIDの検証と復元
 	sessionID := r.Header.Get("SessionID") // クライアントが送るセッションID
@@ -177,7 +166,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	logger.Info("New client added", zap.Uint("UserID", client.UserID), zap.Uint("RoomID", roomID), zap.String("Role", role))
 
 	// ゲームインスタンスの検索または作成
-	var game *Game
+	var game *models.Game
 	var symbol string
 	// 乱数生成器のインスタンスを生成
 	randGen := createLocalRandGenerator()
@@ -205,7 +194,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			nickName := challenger.ChallengerNickname // ニックネームを取得
 			// 2人目のプレイヤーとして参加
 			symbol = "O" // 2人目のプレイヤーには "O" を割り当て
-			game.Players[1] = &Player{ID: claims.UserID, Conn: conn, Symbol: symbol, NickName: nickName}
+			game.Players[1] = &models.Player{ID: claims.UserID, Conn: conn, Symbol: symbol, NickName: nickName}
 			game.PlayersOnlineStatus[1] = true // 2人目のプレイヤーをオンラインとしてマーク
 			// 2人目のプレイヤーが参加したので、ランダムに先手を決定
 			if randGen.Intn(2) == 0 {
@@ -272,10 +261,10 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		}
 
 		symbol = "X" // 最初のプレイヤーには "X" を割り当て
-		game = &Game{
+		game = &models.Game{
 			ID:            roomID,
 			Board:         board,
-			Players:       [2]*Player{{ID: claims.UserID, Conn: conn, Symbol: symbol, NickName: nickName}, nil},
+			Players:       [2]*models.Player{{ID: claims.UserID, Conn: conn, Symbol: symbol, NickName: nickName}, nil},
 			Status:        "round1",
 			RoomTheme:     roomTheme,
 			Bias:          bias,
@@ -284,7 +273,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		}
 		games[roomID] = game // ゲームをマップに追加
 
-		game.Players[0] = &Player{ID: claims.UserID, Conn: conn, Symbol: "X", NickName: nickName}
+		game.Players[0] = &models.Player{ID: claims.UserID, Conn: conn, Symbol: "X", NickName: nickName}
 		game.PlayersOnlineStatus[0] = true // 作成者をオンラインとしてマーク
 
 		// ゲームの状態をブロードキャスト
@@ -295,7 +284,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	go handleClient(client, clients, games, randGen, db, logger)
 
 	// Ping/Pongを管理するゴルーチンを起動
-	go func(c *Client) {
+	go func(c *models.Client) {
 		defer func() {
 			c.Conn.Close()     // ゴルーチンが終了する時にWebSocket接続を閉じる
 			delete(clients, c) // クライアントリストから削除
@@ -343,7 +332,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 }
 
 // ゲームの状態をブロードキャストするヘルパー関数
-func broadcastGameState(game *Game, logger *zap.Logger) {
+func broadcastGameState(game *models.Game, logger *zap.Logger) {
 	playersInfo := make([]map[string]interface{}, len(game.Players))
 	for i, player := range game.Players {
 		if player != nil {
@@ -377,7 +366,7 @@ func broadcastGameState(game *Game, logger *zap.Logger) {
 	}
 }
 
-func notifyOpponentOnlineStatus(roomID uint, userID uint, isOnline bool, clients map[*Client]bool, logger *zap.Logger) {
+func notifyOpponentOnlineStatus(roomID uint, userID uint, isOnline bool, clients map[*models.Client]bool, logger *zap.Logger) {
 	for client := range clients {
 		if client.RoomID == roomID && client.UserID != userID {
 			onlineStatusMessage := map[string]interface{}{

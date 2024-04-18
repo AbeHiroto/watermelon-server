@@ -1,15 +1,12 @@
 package websocket
 
 import (
-	// "encoding/json"
-	// "math/rand"
-	// "time"
+	"xicserver/models"
 
-	// "github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
 
-func handleBribe(game *Game, client *Client, logger *zap.Logger) {
+func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 	// RefereeStatusが"normal"でなければ賄賂は無視
 	if game.RefereeStatus != "normal" {
 		logger.Info("Bribe attempt ignored, referee status is not normal", zap.Uint("PlayerID", client.UserID))
@@ -48,7 +45,7 @@ func handleBribe(game *Game, client *Client, logger *zap.Logger) {
 	broadcastGameState(game, logger)
 }
 
-func handleAccuse(game *Game, client *Client, logger *zap.Logger) {
+func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) {
 	// 審判の状態が "normal" でない場合は、糾弾は無効
 	if game.RefereeStatus != "normal" {
 		logger.Info("Accusation is ineffective because the referee is already in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))

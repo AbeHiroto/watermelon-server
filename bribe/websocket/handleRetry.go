@@ -5,12 +5,13 @@ import (
 	"time"
 
 	// "math/rand"
+	"xicserver/models"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
 
-func handleRetry(game *Game, client *Client, msg map[string]interface{}, logger *zap.Logger) {
+func handleRetry(game *models.Game, client *models.Client, clients map[*models.Client]bool, msg map[string]interface{}, logger *zap.Logger) {
 	// すでに終了したゲームではない、または再戦リクエストを受け付ける状態でない場合は早期リターン
 	if game.Status != "round1_finished" && game.Status != "round2_finished" {
 		logger.Info("Retry request is not applicable.")
@@ -68,7 +69,7 @@ func getNextRoundStatus(currentStatus string) string {
 }
 
 // ゲームを次のラウンドに向けてリセットするヘルパー関数
-func resetGameForNextRound(game *Game) {
+func resetGameForNextRound(game *models.Game) {
 	// ボードのリセット
 	for i := range game.Board {
 		for j := range game.Board[i] {
@@ -84,7 +85,7 @@ func resetGameForNextRound(game *Game) {
 	// 必要に応じてその他のフィールドをリセット
 }
 
-func sendRetryRequestNotification(fromUserID uint, toUserID uint, clients map[*Client]bool, logger *zap.Logger) {
+func sendRetryRequestNotification(fromUserID uint, toUserID uint, clients map[*models.Client]bool, logger *zap.Logger) {
 	for c := range clients {
 		if c.UserID == toUserID {
 			chatMessage := "対戦相手が再戦を希望しています。"

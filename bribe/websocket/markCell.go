@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func handleMarkCell(client *Client, msg map[string]interface{}, game *Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
+func handleMarkCell(client *models.Client, msg map[string]interface{}, game *models.Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
 	// msgからセルの位置を取得
 	x, okX := msg["x"].(int)
 	y, okY := msg["y"].(int)
@@ -90,7 +90,7 @@ func getEmptyCellsExcept(board [][]string, excludeX, excludeY int) [][2]int {
 	return emptyCells
 }
 
-func checkAndUpdateGameStatus(game *Game, db *gorm.DB, logger *zap.Logger) {
+func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger) {
 	// ボードのサイズに基づいて勝利条件を設定
 	winCondition := 3 // デフォルトは3x3のボードでの勝利条件
 	if len(game.Board) == 5 && len(game.Board[0]) == 5 {
@@ -255,7 +255,7 @@ func isBoardFull(board [][]string) bool {
 	return true
 }
 
-func broadcastResults(game *Game, logger *zap.Logger) {
+func broadcastResults(game *models.Game, logger *zap.Logger) {
 	playersInfo := make([]map[string]interface{}, len(game.Players))
 	for i, player := range game.Players {
 		if player != nil {

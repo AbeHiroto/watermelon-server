@@ -18,8 +18,15 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+type RoomCreateRequest struct {
+	Token              string `json:"token,omitempty"`              // 既存のユーザー固有のJWTトークン
+	SubscriptionStatus string `json:"subscriptionStatus,omitempty"` // 課金ステータス
+	Nickname           string `json:"nickname"`                     // ニックネーム
+	RoomTheme          string `json:"roomTheme"`                    // ルームのテーマ
+}
+
 func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
-	var request models.RoomCreateRequest
+	var request RoomCreateRequest
 	var err error
 	if err := c.ShouldBindJSON(&request); err != nil {
 		logger.Error("Room create request bind error", zap.Error(err))
