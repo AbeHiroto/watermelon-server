@@ -3,7 +3,6 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
 
 	"net/http"
 	"strconv"
@@ -19,45 +18,6 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 )
-
-// // Websocketクライアントを定義
-// type Client struct {
-// 	Conn   *websocket.Conn
-// 	UserID uint // JWTから抽出したユーザーID
-// 	RoomID uint
-// 	Role   string // User role (e.g., "creator", "challenger")
-// }
-
-// // 各ゲームのインスタンス
-// type Game struct {
-// 	ID                  uint
-// 	Board               [][]string
-// 	Players             [2]*Player
-// 	PlayersOnlineStatus map[uint]bool // キー: Player ID, 値: オンライン状態
-// 	CurrentTurn         uint          // "player1" または "player2"
-// 	Status              string        // "waiting", "in progress", "finished", "round1", "round2" など
-// 	BribeCounts         [2]int        // プレイヤー1とプレイヤー2の賄賂回数
-// 	Bias                string        // "fair" または "biased"、不正の有無
-// 	BiasDegree          int           // 不正度合い。賄賂の影響による変動値
-// 	RefereeStatus       string        // 審判の状態（例: "normal", "biased", "sad", "angry"）
-// 	RefereeCount        uint          // 0以上の場合はRefereeStatusが異常値に固定される
-// 	RoomTheme           string        // ゲームモード
-// 	Winners             []uint        // 各ラウンドの勝者のID。3要素までのスライス。引き分けの場合は、0やnil
-// 	RetryRequests       map[uint]bool // キー: Player ID, 値: 再戦リクエストの有無
-// }
-
-// // PlayerはUserに紐づく
-// type Player struct {
-// 	ID       uint
-// 	Symbol   string // "X" or "O"
-// 	NickName string
-// 	Conn     *websocket.Conn
-// }
-
-func createLocalRandGenerator() *rand.Rand {
-	source := rand.NewSource(time.Now().UnixNano())
-	return rand.New(source)
-}
 
 // WebSocket接続へのアップグレード
 func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, clients map[*models.Client]bool, games map[uint]*models.Game, upgrader websocket.Upgrader) {
@@ -228,10 +188,10 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		// RoomThemeに基づいて盤面のサイズと不正度合いを設定
 		switch roomTheme {
 		case "3x3_biased":
-			boardSize = 3
-			bias = "biased"
-			biasDegree = 0 // 初期不正度合い
-			refereeStatus = "normal"
+			boardSize = 3            //この場合３ｘ３マス
+			bias = "biased"          //審判の不正有りに設定
+			biasDegree = 0           // 初期不正度合い
+			refereeStatus = "normal" //ゲーム開始時は公平
 		case "3x3_fair":
 			boardSize = 3
 			bias = "fair"
@@ -248,7 +208,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			biasDegree = 0
 			refereeStatus = "normal"
 		default:
-			boardSize = 3 // デフォルトは3x3で不正あり
+			boardSize = 3
 			bias = "biased"
 			biasDegree = 0
 			refereeStatus = "normal"
@@ -272,7 +232,6 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			RefereeStatus: refereeStatus,
 		}
 		games[roomID] = game // ゲームをマップに追加
-
 		game.Players[0] = &models.Player{ID: claims.UserID, Conn: conn, Symbol: "X", NickName: nickName}
 		game.PlayersOnlineStatus[0] = true // 作成者をオンラインとしてマーク
 
@@ -330,62 +289,3 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		// 適切なエラーハンドリング
 	}
 }
-
-// ゲームの状態をブロードキャストするヘルパー関数
-func broadcastGameState(game *models.Game, logger *zap.Logger) {
-	playersInfo := make([]map[string]interface{}, len(game.Players))
-	for i, player := range game.Players {
-		if player != nil {
-			playersInfo[i] = map[string]interface{}{
-				"id":       player.ID,
-				"nickName": player.NickName,
-				"symbol":   player.Symbol,
-			}
-		}
-	}
-
-	gameState := map[string]interface{}{
-		"type":          "gameState",
-		"board":         game.Board,
-		"currentTurn":   game.CurrentTurn,
-		"status":        game.Status,
-		"playersOnline": game.PlayersOnlineStatus,
-		"playersInfo":   playersInfo,
-		"bias":          game.Bias,
-		"refereeStatus": game.RefereeStatus,
-		"winners":       game.Winners,
-	}
-	messageJSON, _ := json.Marshal(gameState)
-
-	for _, player := range game.Players {
-		if player != nil {
-			if err := player.Conn.WriteMessage(websocket.TextMessage, messageJSON); err != nil {
-				logger.Error("Failed to broadcast game state", zap.Error(err))
-			}
-		}
-	}
-}
-
-func notifyOpponentOnlineStatus(roomID uint, userID uint, isOnline bool, clients map[*models.Client]bool, logger *zap.Logger) {
-	for client := range clients {
-		if client.RoomID == roomID && client.UserID != userID {
-			onlineStatusMessage := map[string]interface{}{
-				"type":     "onlineStatus",
-				"userID":   userID,
-				"isOnline": isOnline,
-			}
-			messageJSON, err := json.Marshal(onlineStatusMessage)
-			if err != nil {
-				logger.Error("Failed to marshal online status message", zap.Error(err))
-				continue
-			}
-			if err := client.Conn.WriteMessage(websocket.TextMessage, messageJSON); err != nil {
-				logger.Error("Failed to send online status message", zap.Error(err))
-			}
-		}
-	}
-}
-
-// func generateGameID() string {
-// 	return uuid.New().String() // UUIDを生成して返す
-// }

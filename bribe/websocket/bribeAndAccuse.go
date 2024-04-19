@@ -15,7 +15,7 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 
 	// 現在のターンのプレイヤーを特定
 	var biasAdjustment int
-	playerIndex := -1
+	playerIndex := -1 //BribeCountsのインクリメントで使用
 	if game.Players[0].ID == client.UserID {
 		biasAdjustment = 1 // Players[0] が賄賂を贈った場合
 		playerIndex = 0

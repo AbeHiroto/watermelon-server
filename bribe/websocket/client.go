@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Helper function to send error message to the client via WebSocket
+// Websocket接続でクライアントにエラーメッセージを送信するためのヘルパー関数
 func sendErrorMessage(client *models.Client, errorMessage string) {
 	errorResponse := map[string]string{"error": errorMessage}
 	errorJSON, _ := json.Marshal(errorResponse)
@@ -69,7 +69,6 @@ func handleClient(client *models.Client, clients map[*models.Client]bool, games 
 			case "accuse":
 				handleAccuse(game, client, logger)
 			case "retry":
-				// "retry"メッセージタイプの場合、再戦リクエストの処理
 				handleRetry(game, client, clients, msg, logger)
 			default:
 				logger.Info("Unknown action type", zap.String("actionType", actionType))

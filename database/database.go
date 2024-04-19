@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// LoadConfig loads the configuration from the specified file
+// LoadConfig loads the configuration from config.json
 func LoadConfig(filename string) (models.Config, error) {
 	var config models.Config
 	configFile, err := os.Open(filename)
@@ -30,7 +30,6 @@ func LoadConfig(filename string) (models.Config, error) {
 	return config, err
 }
 
-// initDB initializes the database connection
 func InitPostgreSQL(config models.Config, logger *zap.Logger) (*gorm.DB, error) {
 	dsn := fmt.Sprintf("host=%s user=%s dbname=%s password=%s sslmode=%s",
 		config.DBHost, config.DBUser, config.DBName, config.DBPassword, config.DBSSLMode)
@@ -49,7 +48,6 @@ func InitPostgreSQL(config models.Config, logger *zap.Logger) (*gorm.DB, error) 
 	return nil, fmt.Errorf("データベース接続に失敗しました: %v", err)
 }
 
-// InitializeRedis now returns a *redis.Client and error
 func InitRedis(logger *zap.Logger) (*redis.Client, error) {
 	// 環境変数からRedis接続情報を取得
 	redisAddr := os.Getenv("REDIS_ADDR")

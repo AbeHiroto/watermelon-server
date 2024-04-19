@@ -10,7 +10,7 @@ import (
 	"xicserver/database"                       //PostgreSQLとRedisの初期化
 	"xicserver/handlers"                       //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
 	"xicserver/models"                         //モデル定義
-	"xicserver/utils"                          //ロガーの初期化とCronジョブ
+	"xicserver/utils"                          //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -20,12 +20,11 @@ import (
 )
 
 func main() {
-	// ロガーの初期化
 	var logger *zap.Logger
 	var err error
-	logger, err = utils.InitLogger()
+	logger, err = utils.InitLogger() // ロガーの初期化
 	if err != nil {
-		panic(err) // 失敗した場合はプログラムを停止
+		panic(err) // 失敗した場合はプログラム停止
 	}
 	defer logger.Sync() // ロガーのクリーンアップ
 
@@ -52,7 +51,7 @@ func main() {
 		}
 		db, err = database.InitPostgreSQL(config, logger)
 		if err != nil {
-			logger.Fatal("データベースの初期化に失敗しました", zap.Error(err))
+			logger.Fatal("PostgreSQLの初期化に失敗しました", zap.Error(err))
 		}
 		done <- true
 	}()
