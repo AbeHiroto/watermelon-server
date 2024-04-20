@@ -4,9 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
-	"time"
+	"strings"
 
-	"xicserver/auth"
 	"xicserver/middlewares"
 	"xicserver/models"
 
@@ -14,12 +13,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-
-	jwt "github.com/dgrijalva/jwt-go"
 )
 
 type RoomCreateRequest struct {
-	Token              string `json:"token,omitempty"`              // 既存のユーザー固有のJWTトークン
 	SubscriptionStatus string `json:"subscriptionStatus,omitempty"` // 課金ステータス
 	Nickname           string `json:"nickname"`                     // ニックネーム
 	RoomTheme          string `json:"roomTheme"`                    // ルームのテーマ
@@ -27,7 +23,6 @@ type RoomCreateRequest struct {
 
 func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	var request RoomCreateRequest
-	var err error
 	if err := c.ShouldBindJSON(&request); err != nil {
 		logger.Error("Room create request bind error", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -37,70 +32,25 @@ func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
+	// トークンをヘッダーから取得
+	tokenString := c.GetHeader("Authorization")
+	// Bearerトークンのプレフィックスを確認し、存在する場合は削除
+	if strings.HasPrefix(tokenString, "Bearer ") {
+		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	}
+
 	var userID uint
 	var newToken string
-	var tokenValid = false // トークンの有効性を判定するためのフラグ
+	var tokenValid bool = false // トークンの有効性を判定するフラグ
 
-	// トークンが提供されている場合
-	if request.Token != "" {
-		claims := &models.MyClaims{}
-		token, err := jwt.ParseWithClaims(request.Token, claims, func(token *jwt.Token) (interface{}, error) {
-			return auth.JwtKey, nil
-		})
-
-		if err != nil || !token.Valid {
-			logger.Error("Token validation error", zap.Error(err))
-			newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"status":  "token_invalid_error",
-					"message": "トークン生成に失敗しました",
-				})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{
-				"status":   "token_invalid",
-				"newToken": newToken,
-			})
-			return
-		} else {
-			userID = claims.UserID
-			// トークンの有効期限が1時間未満の場合は新しいトークンを生成
-			if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) < time.Hour {
-				newToken, _, err = middlewares.GenerateToken(db, claims.SubscriptionStatus, userID)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"status":  "token_expired_error",
-						"message": "トークン生成に失敗しました",
-					})
-					return
-				}
-				// 新しいトークンをクライアントに返す
-				c.JSON(http.StatusOK, gin.H{
-					"status": "token_expired",
-					"token":  newToken,
-				})
-				return // ここで処理を終了し、ゲームルーム作成をスキップ
-			} else {
-				tokenValid = true // トークンが有効かつ有効期限が1時間以上ある場合tokenValid関数↓が有効化(true)
-			}
-		}
-
-	} else { //トークンを送るコード追加
-		newToken, userID, err = middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
-		if err != nil {
-			logger.Error("Token generation error", zap.Error(err))
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status": "no_token_error",
-				"error":  "トークンがありません",
-			})
-			return
-		}
-		// 新しく生成されたトークンをクライアントに返す
-		c.JSON(http.StatusOK, gin.H{
-			"status": "no_token",
-			"token":  newToken,
-		})
+	// TokenAuthentication関数でJWTの有効性を確認、無効であれば更新されたトークンを送付する
+	userID, newToken, tokenValid, err := middlewares.TokenAuthentication(c, db, logger, request.SubscriptionStatus)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token processing failed", "newToken": newToken})
+		return
+	}
+	if !tokenValid {
+		c.JSON(http.StatusOK, gin.H{"status": "token_invalid", "newToken": newToken})
 		return
 	}
 

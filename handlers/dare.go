@@ -3,12 +3,10 @@ package handlers
 import (
 	"net/http"
 	"strings"
-	"time"
-	"xicserver/auth"
+
 	"xicserver/middlewares"
 	"xicserver/models"
 
-	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -20,7 +18,7 @@ type ChallengerRequest struct {
 	SubscriptionStatus string `json:"subscriptionStatus"` // 課金ステータス
 }
 
-// ChallengerHandler は入室申請を処理するハンドラです。
+// ChallengerHandler は対戦申請を処理するハンドラです。
 func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	uniqueToken := c.Param("uniqueToken") // URLからUniqueTokenを取得
 
@@ -51,49 +49,18 @@ func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	var newToken string
 	var tokenValid bool = false // トークンの有効性を判定するフラグ
 
-	if tokenString != "" {
-		claims := &models.MyClaims{}
-		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-			return auth.JwtKey, nil
-		})
-
-		if err != nil || !token.Valid {
-			logger.Error("Token validation error", zap.Error(err))
-			newToken, userID, err = middlewares.GenerateToken(db, claims.SubscriptionStatus, 0) // 課金ステータスはリクエストから取得またはデータベースを確認
-			if err != nil {
-				logger.Error("Token generation error", zap.Error(err))
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate new token"})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"newToken": newToken})
-			return
-		} else {
-			userID = claims.UserID
-			if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) < time.Hour {
-				newToken, _, err = middlewares.GenerateToken(db, claims.SubscriptionStatus, userID)
-				if err != nil {
-					logger.Error("Token generation error", zap.Error(err))
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate new token"})
-					return
-				}
-				c.JSON(http.StatusOK, gin.H{"newToken": newToken})
-				return
-			} else {
-				tokenValid = true
-			}
-		}
-	} else {
-		// トークンが提供されていない場合、新しいトークンを生成
-		newToken, _, err := middlewares.GenerateToken(db, request.SubscriptionStatus, 0)
-		if err != nil {
-			logger.Error("Token generation error", zap.Error(err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate new token"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"newToken": newToken})
+	// TokenAuthentication関数でJWTの有効性を確認、無効であれば更新されたトークンを送付する
+	userID, newToken, tokenValid, err := middlewares.TokenAuthentication(c, db, logger, request.SubscriptionStatus)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token processing failed", "newToken": newToken})
+		return
+	}
+	if !tokenValid {
+		c.JSON(http.StatusOK, gin.H{"status": "token_invalid", "newToken": newToken})
 		return
 	}
 
+	// トークンが有効だった場合はここで対戦申請を作成
 	if tokenValid {
 		var user models.User
 		if err := db.First(&user, userID).Error; err != nil {
@@ -106,12 +73,12 @@ func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 			return
 		}
 
-		// 新しい入室申請を作成
+		// 新しい対戦申請を作成
 		newChallenger := models.Challenger{
 			UserID:             userID,
 			GameRoomID:         gameRoom.ID,
-			ChallengerNickname: request.Nickname, // ニックネームを設定
-			Status:             "pending",        // デフォルトは"pending"
+			ChallengerNickname: request.Nickname,
+			Status:             "pending", // デフォルト値は"pending"
 		}
 		if err := db.Create(&newChallenger).Error; err != nil {
 			logger.Error("Failed to create a new challenger", zap.Error(err))
