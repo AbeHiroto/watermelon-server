@@ -1,4 +1,4 @@
-package websocket
+package actions
 
 import (
 	"encoding/json"
@@ -27,7 +27,7 @@ func getCurrentPlayerSymbol(client *models.Client, game *models.Game) string {
 }
 
 // クライアントごとにメッセージ読み取りするゴルーチン
-func handleClient(client *models.Client, clients map[*models.Client]bool, games map[uint]*models.Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
+func HandleClient(client *models.Client, clients map[*models.Client]bool, games map[uint]*models.Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
 	defer func() {
 		client.Conn.Close()     // クライアントの接続を閉じる
 		delete(clients, client) // クライアントリストからこのクライアントを削除

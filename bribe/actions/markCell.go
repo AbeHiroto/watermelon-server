@@ -1,12 +1,11 @@
-package websocket
+package actions
 
 import (
-	"encoding/json"
 	"math/rand"
 
+	"xicserver/bribe/broadcast"
 	"xicserver/models"
 
-	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -179,13 +178,13 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 			if err != nil {
 				logger.Error("Failed to finalize game room updates", zap.Error(err))
 			} else {
-				broadcastResults(game, logger) // Only broadcast results if transaction was successful
+				broadcast.BroadcastResults(game, logger) // Only broadcast results if transaction was successful
 			}
 		} else {
-			broadcastGameState(game, logger)
+			broadcast.BroadcastGameState(game, logger)
 		}
 	} else {
-		broadcastGameState(game, logger)
+		broadcast.BroadcastGameState(game, logger)
 	}
 }
 
@@ -253,44 +252,4 @@ func isBoardFull(board [][]string) bool {
 		}
 	}
 	return true
-}
-
-func broadcastResults(game *models.Game, logger *zap.Logger) {
-	playersInfo := make([]map[string]interface{}, len(game.Players))
-	for i, player := range game.Players {
-		if player != nil {
-			playersInfo[i] = map[string]interface{}{
-				"id":       player.ID,
-				"nickName": player.NickName,
-				"symbol":   player.Symbol,
-			}
-		}
-	}
-
-	results := map[string]interface{}{
-		"type":          "gameResults",
-		"bribeCounts":   game.BribeCounts,
-		"board":         game.Board,
-		"currentTurn":   game.CurrentTurn,
-		"status":        game.Status,
-		"playersOnline": game.PlayersOnlineStatus,
-		"playersInfo":   playersInfo,
-		"bias":          game.Bias,
-		"refereeStatus": game.RefereeStatus,
-		"winners":       game.Winners,
-	}
-	resultsJSON, err := json.Marshal(results)
-	if err != nil {
-		logger.Error("Failed to marshal game results", zap.Error(err))
-		return
-	}
-
-	// ゲームに参加している全プレイヤーに結果をブロードキャスト
-	for _, player := range game.Players {
-		if player != nil && player.Conn != nil {
-			if err := player.Conn.WriteMessage(websocket.TextMessage, resultsJSON); err != nil {
-				logger.Error("Failed to broadcast game results", zap.Error(err))
-			}
-		}
-	}
 }

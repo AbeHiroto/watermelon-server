@@ -1,10 +1,11 @@
-package websocket
+package actions
 
 import (
 	"encoding/json"
 	"time"
 
 	// "math/rand"
+	"xicserver/bribe/broadcast"
 	"xicserver/models"
 
 	"github.com/gorilla/websocket"
@@ -32,7 +33,7 @@ func handleRetry(game *models.Game, client *models.Client, clients map[*models.C
 	// 再戦を望まない場合、ゲームを直ちに終了させる
 	if !wantRetry {
 		game.Status = "finished"
-		broadcastGameState(game, logger)
+		broadcast.BroadcastGameState(game, logger)
 		return
 	} else {
 		// 再戦を望む場合、対戦相手に通知する
@@ -48,10 +49,10 @@ func handleRetry(game *models.Game, client *models.Client, clients map[*models.C
 		if game.RetryRequests[game.Players[0].ID] && game.RetryRequests[game.Players[1].ID] {
 			game.Status = getNextRoundStatus(game.Status)
 			resetGameForNextRound(game)
-			broadcastGameState(game, logger)
+			broadcast.BroadcastGameState(game, logger)
 		} else {
 			game.Status = "finished"
-			broadcastGameState(game, logger)
+			broadcast.BroadcastGameState(game, logger)
 		}
 	}
 }

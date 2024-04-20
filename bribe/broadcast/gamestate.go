@@ -1,10 +1,8 @@
-package websocket
+package broadcast
 
 import (
 	"encoding/json"
-	"math/rand"
 
-	"time"
 	"xicserver/models"
 
 	"go.uber.org/zap"
@@ -12,14 +10,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// 乱数は先攻後攻の決定や選択したセルに印を置かれるかなどの決定に使用
-func createLocalRandGenerator() *rand.Rand {
-	source := rand.NewSource(time.Now().UnixNano())
-	return rand.New(source)
-}
-
 // ゲームの状態をブロードキャストするヘルパー関数
-func broadcastGameState(game *models.Game, logger *zap.Logger) {
+func BroadcastGameState(game *models.Game, logger *zap.Logger) {
 	playersInfo := make([]map[string]interface{}, len(game.Players))
 	for i, player := range game.Players {
 		if player != nil {
@@ -53,7 +45,47 @@ func broadcastGameState(game *models.Game, logger *zap.Logger) {
 	}
 }
 
-func notifyOpponentOnlineStatus(roomID uint, userID uint, isOnline bool, clients map[*models.Client]bool, logger *zap.Logger) {
+func BroadcastResults(game *models.Game, logger *zap.Logger) {
+	playersInfo := make([]map[string]interface{}, len(game.Players))
+	for i, player := range game.Players {
+		if player != nil {
+			playersInfo[i] = map[string]interface{}{
+				"id":       player.ID,
+				"nickName": player.NickName,
+				"symbol":   player.Symbol,
+			}
+		}
+	}
+
+	results := map[string]interface{}{
+		"type":          "gameResults",
+		"bribeCounts":   game.BribeCounts,
+		"board":         game.Board,
+		"currentTurn":   game.CurrentTurn,
+		"status":        game.Status,
+		"playersOnline": game.PlayersOnlineStatus,
+		"playersInfo":   playersInfo,
+		"bias":          game.Bias,
+		"refereeStatus": game.RefereeStatus,
+		"winners":       game.Winners,
+	}
+	resultsJSON, err := json.Marshal(results)
+	if err != nil {
+		logger.Error("Failed to marshal game results", zap.Error(err))
+		return
+	}
+
+	// ゲームに参加している全プレイヤーに結果をブロードキャスト
+	for _, player := range game.Players {
+		if player != nil && player.Conn != nil {
+			if err := player.Conn.WriteMessage(websocket.TextMessage, resultsJSON); err != nil {
+				logger.Error("Failed to broadcast game results", zap.Error(err))
+			}
+		}
+	}
+}
+
+func NotifyOpponentOnlineStatus(roomID uint, userID uint, isOnline bool, clients map[*models.Client]bool, logger *zap.Logger) {
 	for client := range clients {
 		if client.RoomID == roomID && client.UserID != userID {
 			onlineStatusMessage := map[string]interface{}{

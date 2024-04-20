@@ -1,4 +1,4 @@
-package websocket
+package bribe
 
 import (
 	"context"
@@ -8,7 +8,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"xicserver/auth"
+	"xicserver/bribe/actions"
+	"xicserver/bribe/broadcast"
+	"xicserver/bribe/database"
 	"xicserver/models"
 
 	"go.uber.org/zap"
@@ -44,7 +48,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	// JWTトークンを検証し、クレームを抽出
 	claims := &models.MyClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return auth.JwtKey, nil // ！！！ここで使用するシークレットキーは、本番環境では環境変数で設定
+		return auth.JwtKey, nil // ！！！ここで使用するシークレットキーは、本番環境では別管理
 	})
 
 	if err != nil || !token.Valid {
@@ -79,7 +83,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 				// 旧セッションの削除
 				rdb.Del(ctx, "session:"+sessionID)
 				// 新しいセッションIDの発行と保存
-				generateAndStoreSessionID(r.Context(), client, rdb, logger)
+				database.GenerateAndStoreSessionID(r.Context(), client, rdb, logger)
 			} else {
 				// セッション情報の復元に失敗した場合の処理
 				logger.Error("Failed to decode session info", zap.Error(err))
@@ -165,7 +169,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		}
 
 		// ゲームの状態をブロードキャスト
-		broadcastGameState(game, logger)
+		broadcast.BroadcastGameState(game, logger)
 
 	} else {
 		var boardSize int
@@ -236,11 +240,11 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		game.PlayersOnlineStatus[0] = true // 作成者をオンラインとしてマーク
 
 		// ゲームの状態をブロードキャスト
-		broadcastGameState(game, logger)
+		broadcast.BroadcastGameState(game, logger)
 	}
 
 	// クライアントごとにメッセージ読み取りゴルーチンを起動（）
-	go handleClient(client, clients, games, randGen, db, logger)
+	go actions.HandleClient(client, clients, games, randGen, db, logger)
 
 	// Ping/Pongを管理するゴルーチンを起動
 	go func(c *models.Client) {
@@ -249,14 +253,14 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 			delete(clients, c) // クライアントリストから削除
 			logger.Info("Client removed", zap.Uint("UserID", c.UserID))
 			// クライアントが切断されたことを対戦相手に通知
-			notifyOpponentOnlineStatus(c.RoomID, c.UserID, false, clients, logger)
+			broadcast.NotifyOpponentOnlineStatus(c.RoomID, c.UserID, false, clients, logger)
 		}()
 
 		// Pongハンドラの設定: Pongメッセージを受信したら読み取りデッドラインを更新し、オンライン状態を反映
 		c.Conn.SetPongHandler(func(string) error {
 			c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // 60秒の読み取りデッドライン
 			// クライアントがオンラインであることを対戦相手に通知
-			notifyOpponentOnlineStatus(c.RoomID, c.UserID, true, clients, logger)
+			broadcast.NotifyOpponentOnlineStatus(c.RoomID, c.UserID, true, clients, logger)
 			return nil
 		})
 
@@ -283,9 +287,8 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	}(client)
 
 	// Generate and store session ID, then send it back to the client
-	err = generateAndStoreSessionID(r.Context(), client, rdb, logger)
+	err = database.GenerateAndStoreSessionID(r.Context(), client, rdb, logger)
 	if err != nil {
 		logger.Error("Failed to generate or store session ID", zap.Error(err))
-		// 適切なエラーハンドリング
 	}
 }

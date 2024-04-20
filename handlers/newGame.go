@@ -115,8 +115,6 @@ func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		}
 		uniqueToken = hex.EncodeToString(bytes) // 16進数の文字列に変換
 
-		// ！ここでGameモデルのURLフィールドにUniqueTokenを追加する
-
 		// 生成されたトークンがデータベース内で既に使用されていないかを確認
 		var exists bool
 		db.Model(&models.GameRoom{}).Select("count(*) > 0").Where("unique_token = ?", uniqueToken).Find(&exists)

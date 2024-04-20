@@ -6,11 +6,11 @@ import (
 
 	"go.uber.org/zap"
 
-	bribeWebsocket "xicserver/bribe/websocket" //BRIBEのゲームロジック（コンフリクト回避のためエイリアス使用）
-	"xicserver/database"                       //PostgreSQLとRedisの初期化
-	"xicserver/handlers"                       //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
-	"xicserver/models"                         //モデル定義
-	"xicserver/utils"                          //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
+	"xicserver/bribe"    //BRIBEのゲームロジック
+	"xicserver/database" //PostgreSQLとRedisの初期化
+	"xicserver/handlers" //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
+	"xicserver/models"   //モデル定義
+	"xicserver/utils"    //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -117,7 +117,7 @@ func main() {
 		handlers.ChallengerHandler(c, db, logger)
 	})
 	router.GET("/ws", func(c *gin.Context) {
-		bribeWebsocket.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
+		bribe.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
 	})
 
 	// テスト時はHTTPサーバーとして運用。デフォルトポートは ":8080"

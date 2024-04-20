@@ -1,6 +1,7 @@
-package websocket
+package actions
 
 import (
+	"xicserver/bribe/broadcast"
 	"xicserver/models"
 
 	"go.uber.org/zap"
@@ -42,7 +43,7 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 	logger.Info("Bribe accepted", zap.Uint("PlayerID", client.UserID), zap.Int("NewBiasDegree", game.BiasDegree))
 
 	// ゲーム状態のブロードキャスト
-	broadcastGameState(game, logger)
+	broadcast.BroadcastGameState(game, logger)
 }
 
 func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) {
@@ -77,5 +78,5 @@ func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) 
 	}
 
 	// ゲーム状態のブロードキャスト
-	broadcastGameState(game, logger)
+	broadcast.BroadcastGameState(game, logger)
 }

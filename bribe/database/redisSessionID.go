@@ -1,4 +1,4 @@
-package websocket
+package database
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func generateAndStoreSessionID(ctx context.Context, client *models.Client, rdb *redis.Client, logger *zap.Logger) error {
+func GenerateAndStoreSessionID(ctx context.Context, client *models.Client, rdb *redis.Client, logger *zap.Logger) error {
 	sessionID := uuid.New().String()
 
 	// セッション情報をJSON形式でエンコード
