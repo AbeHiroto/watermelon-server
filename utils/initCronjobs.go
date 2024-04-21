@@ -57,7 +57,12 @@ func CronCleaner(db *gorm.DB, logger *zap.Logger) {
 		}
 
 		// 最後にルーム自体を削除
-		db.Where("id IN ?", expiredRoomIDs).Delete(&models.GameRoom{})
+		result := db.Where("id IN ?", expiredRoomIDs).Delete(&models.GameRoom{})
+		if result.Error != nil {
+			logger.Error("expired状態のルーム削除に失敗しました", zap.Error(result.Error))
+		} else {
+			logger.Info("expired状態のルーム削除完了", zap.Int("rooms_deleted", int(result.RowsAffected)))
+		}
 	})
 
 	c.Start()

@@ -1,4 +1,4 @@
-package handlers
+package screens
 
 import (
 	"net/http"
@@ -101,7 +101,7 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	c.JSON(http.StatusOK, response)
 }
 
-// // ListHandler はリスト画面用のハンドラです。
+// // ListHandler は未実装のリスト画面用のハンドラです
 // func ListHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 // 	// トークンからユーザーIDを取得
 // 	userID, err := GetUserIDFromToken(c, logger)

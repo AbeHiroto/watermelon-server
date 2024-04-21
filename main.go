@@ -8,8 +8,8 @@ import (
 
 	"xicserver/bribe"    //BRIBEのゲームロジック
 	"xicserver/database" //PostgreSQLとRedisの初期化
-	"xicserver/handlers" //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
 	"xicserver/models"   //モデル定義
+	"xicserver/screens"  //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
 	"xicserver/utils"    //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
 
 	"github.com/gin-contrib/cors"
@@ -68,7 +68,7 @@ func main() {
 	<-done
 	<-done
 
-	// スケジューラのセットアップと呼び出し
+	// クーロンスケジューラのセットアップと呼び出し
 	go utils.CronCleaner(db, logger)
 
 	router := gin.Default()
@@ -93,28 +93,28 @@ func main() {
 
 	//各HTTPリクエストのルーティング
 	router.POST("/create", func(c *gin.Context) {
-		handlers.RoomCreate(c, db, logger)
+		screens.RoomCreate(c, db, logger)
 	})
 	router.GET("/home", func(c *gin.Context) {
-		handlers.HomeHandler(c, db, logger)
+		screens.HomeHandler(c, db, logger)
 	})
 	router.GET("/room/info", func(c *gin.Context) {
-		handlers.MyRoomInfoHandler(c, db, logger)
+		screens.MyRoomInfoHandler(c, db, logger)
 	})
 	router.PUT("/request/reply", func(c *gin.Context) {
-		handlers.ReplyHandler(c, db, logger)
+		screens.ReplyHandler(c, db, logger)
 	})
 	router.DELETE("/room", func(c *gin.Context) {
-		handlers.RoomDeleteHandler(c, db, logger)
+		screens.RoomDeleteHandler(c, db, logger)
 	})
 	router.GET("/request/info", func(c *gin.Context) {
-		handlers.MyRequestHandler(c, db, logger)
+		screens.MyRequestHandler(c, db, logger)
 	})
 	router.DELETE("/request/disable", func(c *gin.Context) {
-		handlers.DisableMyRequest(c, db, logger)
+		screens.DisableMyRequest(c, db, logger)
 	})
 	router.POST("/challenger/create/:uniqueToken", func(c *gin.Context) {
-		handlers.ChallengerHandler(c, db, logger)
+		screens.ChallengerHandler(c, db, logger)
 	})
 	router.GET("/ws", func(c *gin.Context) {
 		bribe.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
