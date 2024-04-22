@@ -6,12 +6,11 @@ import (
 
 	"go.uber.org/zap"
 
-	//"xicserver/bribe"    //BRIBEのゲームロジック
 	"xicserver/database" //PostgreSQLとRedisの初期化
-	"xicserver/handlers"
-	"xicserver/models"  //モデル定義
-	"xicserver/screens" //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
-	"xicserver/utils"   //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
+	"xicserver/handlers" //Websocket接続へのアップグレードとホーム画面での構成に必要な情報の取得
+	"xicserver/models"   //モデル定義
+	"xicserver/screens"  //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
+	"xicserver/utils"    //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
