@@ -1,4 +1,4 @@
-#bribe_server
+# bribe_server
 
 - main.go
 - auth/ (Validation of JWT)
