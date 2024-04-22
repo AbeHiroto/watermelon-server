@@ -6,11 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	//"xicserver/bribe/connection"
 	"xicserver/models"
 
 	"go.uber.org/zap"
-	//"gorm.io/gorm"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
@@ -55,25 +53,6 @@ func ValidateSessionID(ctx context.Context, r *http.Request, rdb *redis.Client, 
 	}
 	return client
 }
-
-// // createNewSession handles creating a new session and returns a new client object
-// func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger) *models.Client {
-// 	client := new(models.Client)
-// 	clientContext, err := connection.FetchClientContext(ctx, r, db, logger)
-// 	if err != nil {
-// 		logger.Error("Error fetching client context", zap.Error(err))
-// 		return nil
-// 	}
-// 	client.UserID = clientContext.UserID
-// 	client.RoomID = clientContext.RoomID
-// 	client.Role = clientContext.Role
-
-// 	if err := GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
-// 		logger.Error("Failed to generate or store session ID", zap.Error(err))
-// 		return nil
-// 	}
-// 	return client
-// }
 
 func GenerateAndStoreSessionID(ctx context.Context, client *models.Client, rdb *redis.Client, logger *zap.Logger) error {
 	sessionID := uuid.New().String()

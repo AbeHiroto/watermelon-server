@@ -2,12 +2,9 @@ package connection
 
 import (
 	"context"
-
-	"net/http"
-
-	"strings"
-
 	"fmt"
+	"net/http"
+	"strings"
 
 	"xicserver/auth"
 	"xicserver/bribe/database"
@@ -26,6 +23,25 @@ type ClientContext struct {
 	RoomID uint
 	Role   string
 	Claims *models.MyClaims // JWTクレームを含む
+}
+
+// クライアントが初めてセッションを開始する際この関数にアクセスします
+func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger) *models.Client {
+	client := new(models.Client)
+	clientContext, err := FetchClientContext(ctx, r, db, logger)
+	if err != nil {
+		logger.Error("Error fetching client context", zap.Error(err))
+		return nil
+	}
+	client.UserID = clientContext.UserID
+	client.RoomID = clientContext.RoomID
+	client.Role = clientContext.Role
+
+	if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+		logger.Error("Failed to generate or store session ID", zap.Error(err))
+		return nil
+	}
+	return client
 }
 
 func FetchClientContext(ctx context.Context, r *http.Request, db *gorm.DB, logger *zap.Logger) (*ClientContext, error) {
@@ -92,23 +108,4 @@ func TokenValidation(r *http.Request, logger *zap.Logger) (*models.MyClaims, err
 	}
 
 	return claims, nil
-}
-
-// createNewSession handles creating a new session and returns a new client object
-func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger) *models.Client {
-	client := new(models.Client)
-	clientContext, err := FetchClientContext(ctx, r, db, logger)
-	if err != nil {
-		logger.Error("Error fetching client context", zap.Error(err))
-		return nil
-	}
-	client.UserID = clientContext.UserID
-	client.RoomID = clientContext.RoomID
-	client.Role = clientContext.Role
-
-	if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
-		logger.Error("Failed to generate or store session ID", zap.Error(err))
-		return nil
-	}
-	return client
 }

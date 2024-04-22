@@ -22,11 +22,12 @@ import (
 func main() {
 	var logger *zap.Logger
 	var err error
-	logger, err = utils.InitLogger() // ロガーの初期化
+	// ロガーの初期化とクリーンナップ
+	logger, err = utils.InitLogger()
 	if err != nil {
-		panic(err) // 失敗した場合はプログラム停止
+		panic(err)
 	}
-	defer logger.Sync() // ロガーのクリーンアップ
+	defer logger.Sync()
 
 	// Websocket接続で用いる変数を初期化
 	clients := make(map[*models.Client]bool)
@@ -45,6 +46,7 @@ func main() {
 	done := make(chan bool)
 
 	go func() {
+		// 開発環境でのみ設定ファイルを使用
 		config, err := database.LoadConfig("config.json")
 		if err != nil {
 			logger.Fatal("設定ファイルの読み込みに失敗しました", zap.Error(err))
