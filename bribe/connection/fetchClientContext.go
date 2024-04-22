@@ -10,13 +10,14 @@ import (
 	"fmt"
 
 	"xicserver/auth"
-
+	"xicserver/bribe/database"
 	"xicserver/models"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/go-redis/redis/v8"
 )
 
 // ClientContext はクライアントのセッション情報を保持するための構造体です。
@@ -24,28 +25,7 @@ type ClientContext struct {
 	UserID uint
 	RoomID uint
 	Role   string
-	Valid  bool
 	Claims *models.MyClaims // JWTクレームを含む
-}
-
-// TokenValidation 関数を新たに定義するか、FetchClientContext 内でトークン検証を実行します。
-func TokenValidation(r *http.Request, logger *zap.Logger) (*models.MyClaims, error) {
-	tokenString := r.Header.Get("Authorization")
-	if strings.HasPrefix(tokenString, "Bearer ") {
-		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
-	}
-
-	claims := &models.MyClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return auth.JwtKey, nil
-	})
-
-	if err != nil || !token.Valid {
-		logger.Error("Failed to validate token", zap.Error(err))
-		return nil, fmt.Errorf("token validation failed: %w", err)
-	}
-
-	return claims, nil
 }
 
 func FetchClientContext(ctx context.Context, r *http.Request, db *gorm.DB, logger *zap.Logger) (*ClientContext, error) {
@@ -83,14 +63,52 @@ func FetchClientContext(ctx context.Context, r *http.Request, db *gorm.DB, logge
 		}
 		roomID = challenger.GameRoomID
 	} else {
-		role = "Viewer" // Handle potential cases for users without roles explicitly defined
+		return nil, fmt.Errorf("unauthorized access: viewer role not permitted")
 	}
 
 	return &ClientContext{
 		UserID: claims.UserID,
 		RoomID: roomID,
 		Role:   role,
-		Valid:  true,
-		Claims: claims, // JWTクレームを含む
+		Claims: claims,
 	}, nil
+}
+
+// TokenValidation 関数を新たに定義するか、FetchClientContext 内でトークン検証を実行します。
+func TokenValidation(r *http.Request, logger *zap.Logger) (*models.MyClaims, error) {
+	tokenString := r.Header.Get("Authorization")
+	if strings.HasPrefix(tokenString, "Bearer ") {
+		tokenString = strings.TrimPrefix(tokenString, "Bearer ")
+	}
+
+	claims := &models.MyClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return auth.JwtKey, nil
+	})
+
+	if err != nil || !token.Valid {
+		logger.Error("Failed to validate token", zap.Error(err))
+		return nil, fmt.Errorf("token validation failed: %w", err)
+	}
+
+	return claims, nil
+}
+
+// createNewSession handles creating a new session and returns a new client object
+func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger) *models.Client {
+	client := new(models.Client)
+	clientContext, err := FetchClientContext(ctx, r, db, logger)
+	if err != nil {
+		logger.Error("Error fetching client context", zap.Error(err))
+		return nil
+	}
+	client.UserID = clientContext.UserID
+	client.RoomID = clientContext.RoomID
+	client.Role = clientContext.Role
+
+	if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+		logger.Error("Failed to generate or store session ID", zap.Error(err))
+		return nil
+	}
+	return client
 }

@@ -1,8 +1,8 @@
-package bribe
+package handlers
 
 import (
 	"context"
-	"encoding/json"
+	//"encoding/json"
 
 	"net/http"
 	//"strconv"
@@ -10,8 +10,10 @@ import (
 	"time"
 
 	//"xicserver/auth"
+	"xicserver/bribe"
 	"xicserver/bribe/actions"
 	"xicserver/bribe/broadcast"
+
 	"xicserver/bribe/connection"
 	"xicserver/bribe/database"
 	"xicserver/models"
@@ -26,10 +28,20 @@ import (
 
 // WebSocket接続へのアップグレードを行う関数
 func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, clients map[*models.Client]bool, games map[uint]*models.Game, upgrader websocket.Upgrader) {
-	// ユーザーコンテキストの取得
-	clientContext, err := connection.FetchClientContext(ctx, r, db, logger)
-	if err != nil {
-		logger.Error("Error fetching client context", zap.Error(err))
+	sessionID := r.Header.Get("SessionID")
+	var client *models.Client
+	// リクエストヘッダーにセッションIDがある場合はセッションの復旧を行い、無ければ新規発行
+	if sessionID != "" {
+		client = database.ValidateSessionID(ctx, r, rdb, sessionID, logger)
+		if client == nil {
+			logger.Warn("Session ID is invalid or expired, creating a new session")
+			client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+		}
+	} else {
+		client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+	}
+
+	if client == nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -43,46 +55,9 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	client := &models.Client{
-		Conn:   conn,
-		UserID: clientContext.UserID,
-		RoomID: clientContext.RoomID,
-		Role:   clientContext.Role,
-	}
-
 	// クライアントリストに新規クライアントを追加
 	clients[client] = true
-	logger.Info("New client added", zap.Uint("UserID", client.UserID), zap.Uint("RoomID", clientContext.RoomID), zap.String("Role", clientContext.Role))
-
-	//client := &models.Client{Conn: conn, UserID: claims.UserID, RoomID: roomID, Role: role}
-
-	// セッションIDの検証と復元
-	sessionID := r.Header.Get("SessionID") // クライアントが送るセッションID
-	if sessionID != "" {
-		sessionInfoJSON, err := rdb.Get(ctx, "session:"+sessionID).Result()
-		if err == nil {
-			// Redisから取得したセッション情報をデコード
-			var sessionInfo map[string]uint
-			if err := json.Unmarshal([]byte(sessionInfoJSON), &sessionInfo); err == nil {
-				// セッション情報に基づいてクライアント情報を復元
-				client.UserID = sessionInfo["userID"]
-				client.RoomID = sessionInfo["roomID"]
-				// 旧セッションの削除
-				rdb.Del(ctx, "session:"+sessionID)
-				// 新しいセッションIDの発行と保存
-				database.GenerateAndStoreSessionID(r.Context(), client, rdb, logger)
-			} else {
-				// セッション情報の復元に失敗した場合の処理
-				logger.Error("Failed to decode session info", zap.Error(err))
-				http.Error(w, "Failed to restore session", http.StatusInternalServerError)
-				return
-			}
-		} else {
-			// セッションIDが無効または期限切れの場合
-			http.Error(w, "Invalid or expired session ID", http.StatusUnauthorized)
-			return
-		}
-	}
+	logger.Info("New client added", zap.Uint("UserID", client.UserID), zap.Uint("RoomID", client.RoomID), zap.String("Role", client.Role))
 
 	// WebSocketのCloseHandlerを設定
 	client.Conn.SetCloseHandler(func(code int, text string) error {
@@ -93,43 +68,19 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		return nil
 	})
 
-	// ロールに基づいてデータベースを照会→削除する。fetchClientContext内で処理、ロールが見つからない場合return
-	// !!ここもう必要ないかも
-	var accessGranted bool
-	if clientContext.Role == "Creator" {
-		var gameRoom models.GameRoom
-		if err := db.Where("id = ? AND user_id = ?", clientContext.RoomID, clientContext.UserID).First(&gameRoom).Error; err == nil {
-			accessGranted = true
-		}
-	} else if clientContext.Role == "Challenger" {
-		var challenger models.Challenger
-		if err := db.Where("game_room_id = ? AND user_id = ? AND status = 'accepted'", clientContext.RoomID, clientContext.UserID).First(&challenger).Error; err == nil {
-			accessGranted = true
-		}
-	}
-
-	if !accessGranted {
-		http.Error(w, "Not authorized", http.StatusForbidden)
-		return
-	}
-
-	// ここで新しいクライアントを処理（例：クライアントリストに追加）
-	clients[client] = true
-	logger.Info("New client added", zap.Uint("UserID", client.UserID), zap.Uint("RoomID", clientContext.RoomID), zap.String("Role", clientContext.Role))
-
 	// ゲームインスタンスの検索または作成
 	var game *models.Game
 	var symbol string
 	// 乱数生成器のインスタンスを生成
-	randGen := createLocalRandGenerator()
-	if existingGame, ok := games[clientContext.RoomID]; ok {
+	randGen := bribe.CreateLocalRandGenerator()
+	if existingGame, ok := games[client.RoomID]; ok {
 		// ゲームインスタンスが既に存在する場合、参加
 		game = existingGame
 		// クライアントがゲームにすでに参加しているか確認
 		alreadyJoined := false
 		playerIndex := -1
 		for i, player := range game.Players {
-			if player != nil && player.ID == clientContext.UserID {
+			if player != nil && player.ID == client.UserID {
 				alreadyJoined = true
 				playerIndex = i
 				break
@@ -137,16 +88,16 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		}
 		if alreadyJoined {
 			// 既にゲームに参加しているクライアントの再接続処理
-			game.Players[playerIndex].Conn = conn                 // 新しいWebSocket接続を設定
-			game.PlayersOnlineStatus[clientContext.UserID] = true // オンライン状態をtrueに更新
+			game.Players[playerIndex].Conn = conn          // 新しいWebSocket接続を設定
+			game.PlayersOnlineStatus[client.UserID] = true // オンライン状態をtrueに更新
 		} else {
 			// 挑戦者のニックネームを取得
 			var challenger models.Challenger
-			db.Where("game_room_id = ? AND user_id = ?", clientContext.RoomID, clientContext.UserID).First(&challenger)
+			db.Where("game_room_id = ? AND user_id = ?", client.RoomID, client.UserID).First(&challenger)
 			nickName := challenger.ChallengerNickname // ニックネームを取得
 			// 2人目のプレイヤーとして参加
 			symbol = "O" // 2人目のプレイヤーには "O" を割り当て
-			game.Players[1] = &models.Player{ID: clientContext.UserID, Conn: conn, Symbol: symbol, NickName: nickName}
+			game.Players[1] = &models.Player{ID: client.UserID, Conn: conn, Symbol: symbol, NickName: nickName}
 			game.PlayersOnlineStatus[1] = true // 2人目のプレイヤーをオンラインとしてマーク
 			// 2人目のプレイヤーが参加したので、ランダムに先手を決定
 			if randGen.Intn(2) == 0 {
@@ -167,7 +118,7 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 		var biasDegree int
 		var refereeStatus string
 		// ここでDBからGameRoomのインスタンスを取得し、RoomThemeフィールドの値を取得する
-		err := db.Where("id = ?", clientContext.RoomID).First(&gameRoom).Error
+		err := db.Where("id = ?", client.RoomID).First(&gameRoom).Error
 		if err != nil {
 			// データベースからゲームルームの情報を取得できなかった場合
 			logger.Error("Failed to retrieve game room from database", zap.Error(err))
@@ -214,17 +165,17 @@ func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Reque
 
 		symbol = "X" // 最初のプレイヤーには "X" を割り当て
 		game = &models.Game{
-			ID:            clientContext.RoomID,
+			ID:            client.RoomID,
 			Board:         board,
-			Players:       [2]*models.Player{{ID: clientContext.UserID, Conn: conn, Symbol: symbol, NickName: nickName}, nil},
+			Players:       [2]*models.Player{{ID: client.UserID, Conn: conn, Symbol: symbol, NickName: nickName}, nil},
 			Status:        "round1",
 			RoomTheme:     roomTheme,
 			Bias:          bias,
 			BiasDegree:    biasDegree,
 			RefereeStatus: refereeStatus,
 		}
-		games[clientContext.RoomID] = game // ゲームをマップに追加
-		game.Players[0] = &models.Player{ID: clientContext.UserID, Conn: conn, Symbol: "X", NickName: nickName}
+		games[client.RoomID] = game // ゲームをマップに追加
+		game.Players[0] = &models.Player{ID: client.UserID, Conn: conn, Symbol: "X", NickName: nickName}
 		game.PlayersOnlineStatus[0] = true // 作成者をオンラインとしてマーク
 
 		// ゲームの状態をブロードキャスト

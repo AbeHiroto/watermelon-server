@@ -6,11 +6,12 @@ import (
 
 	"go.uber.org/zap"
 
-	"xicserver/bribe"    //BRIBEのゲームロジック
+	//"xicserver/bribe"    //BRIBEのゲームロジック
 	"xicserver/database" //PostgreSQLとRedisの初期化
-	"xicserver/models"   //モデル定義
-	"xicserver/screens"  //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
-	"xicserver/utils"    //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
+	"xicserver/handlers"
+	"xicserver/models"  //モデル定義
+	"xicserver/screens" //フロントの画面構成やマッチングに関連するHTTPリクエストの処理
+	"xicserver/utils"   //ロガーの初期化とCronジョブ(PostgreSQLの定期クリーンナップ)
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -96,7 +97,7 @@ func main() {
 		screens.RoomCreate(c, db, logger)
 	})
 	router.GET("/home", func(c *gin.Context) {
-		screens.HomeHandler(c, db, logger)
+		handlers.HomeHandler(c, db, logger)
 	})
 	router.GET("/room/info", func(c *gin.Context) {
 		screens.MyRoomInfoHandler(c, db, logger)
@@ -117,7 +118,7 @@ func main() {
 		screens.ChallengerHandler(c, db, logger)
 	})
 	router.GET("/ws", func(c *gin.Context) {
-		bribe.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
+		handlers.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
 	})
 
 	// テスト時はHTTPサーバーとして運用。デフォルトポートは ":8080"

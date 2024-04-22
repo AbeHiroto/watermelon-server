@@ -3,16 +3,77 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"time"
 
+	//"xicserver/bribe/connection"
 	"xicserver/models"
 
 	"go.uber.org/zap"
+	//"gorm.io/gorm"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
+
+// ValidateSessionID checks the session ID from Redis and returns the client if the session is valid.
+func ValidateSessionID(ctx context.Context, r *http.Request, rdb *redis.Client, sessionID string, logger *zap.Logger) *models.Client {
+	sessionInfoJSON, err := rdb.Get(ctx, "session:"+sessionID).Result()
+	if err != nil {
+		logger.Error("Failed to retrieve session info", zap.Error(err))
+		return nil
+	}
+
+	var sessionInfo map[string]interface{}
+	if err := json.Unmarshal([]byte(sessionInfoJSON), &sessionInfo); err != nil {
+		logger.Error("Failed to decode session info", zap.Error(err))
+		return nil
+	}
+
+	userID, ok := sessionInfo["userID"].(float64) // JSONの数値はfloat64としてデコードされます
+	if !ok {
+		logger.Error("Invalid session info: missing userID")
+		return nil
+	}
+	roomID, ok := sessionInfo["roomID"].(float64)
+	if !ok {
+		logger.Error("Invalid session info: missing roomID")
+		return nil
+	}
+	role, ok := sessionInfo["role"].(string)
+	if !ok {
+		logger.Error("Invalid session info: missing role")
+		return nil
+	}
+
+	// 有効なセッション情報を基にClientオブジェクトを作成
+	client := &models.Client{
+		UserID: uint(userID),
+		RoomID: uint(roomID),
+		Role:   role,
+	}
+	return client
+}
+
+// // createNewSession handles creating a new session and returns a new client object
+// func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger) *models.Client {
+// 	client := new(models.Client)
+// 	clientContext, err := connection.FetchClientContext(ctx, r, db, logger)
+// 	if err != nil {
+// 		logger.Error("Error fetching client context", zap.Error(err))
+// 		return nil
+// 	}
+// 	client.UserID = clientContext.UserID
+// 	client.RoomID = clientContext.RoomID
+// 	client.Role = clientContext.Role
+
+// 	if err := GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+// 		logger.Error("Failed to generate or store session ID", zap.Error(err))
+// 		return nil
+// 	}
+// 	return client
+// }
 
 func GenerateAndStoreSessionID(ctx context.Context, client *models.Client, rdb *redis.Client, logger *zap.Logger) error {
 	sessionID := uuid.New().String()
@@ -22,7 +83,6 @@ func GenerateAndStoreSessionID(ctx context.Context, client *models.Client, rdb *
 		"userID": client.UserID,
 		"roomID": client.RoomID,
 		"role":   client.Role,
-		// "ipAddress": clientIpAddress, // クライアントのIPアドレスを取得するロジックが必要
 	}
 	sessionInfoJSON, err := json.Marshal(sessionInfo)
 	if err != nil {
