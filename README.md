@@ -1,4 +1,5 @@
 # bribe_server
+<img src="https://img.shields.io/badge/-Go-76E1FE.svg?logo=go&style=for-the-badge"> <img src="https://img.shields.io/badge/-Gin-333366.svg?logo=gin&style=for-the-badge"> <img src="https://img.shields.io/badge/-Postgresql-2f2f2f.svg?logo=postgresql&style=for-the-badge">
 
 - main.go
 - auth/ (Validation of JWT)

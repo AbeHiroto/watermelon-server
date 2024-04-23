@@ -95,31 +95,31 @@ func main() {
 
 	//各HTTPリクエストのルーティング
 	router.POST("/create", func(c *gin.Context) {
-		screens.RoomCreate(c, db, logger)
+		screens.NewGame(c, db, logger)
 	})
 	router.GET("/home", func(c *gin.Context) {
 		handlers.HomeHandler(c, db, logger)
 	})
 	router.GET("/room/info", func(c *gin.Context) {
-		screens.MyRoomInfoHandler(c, db, logger)
+		screens.MyRoomInfo(c, db, logger)
 	})
 	router.PUT("/request/reply", func(c *gin.Context) {
 		screens.ReplyHandler(c, db, logger)
 	})
 	router.DELETE("/room", func(c *gin.Context) {
-		screens.RoomDeleteHandler(c, db, logger)
+		screens.DeleteMyRoom(c, db, logger)
 	})
 	router.GET("/request/info", func(c *gin.Context) {
-		screens.MyRequestHandler(c, db, logger)
+		screens.MyRequestInfo(c, db, logger)
 	})
 	router.DELETE("/request/disable", func(c *gin.Context) {
 		screens.DisableMyRequest(c, db, logger)
 	})
 	router.POST("/challenger/create/:uniqueToken", func(c *gin.Context) {
-		screens.ChallengerHandler(c, db, logger)
+		screens.NewChallenge(c, db, logger)
 	})
 	router.GET("/ws", func(c *gin.Context) {
-		handlers.HandleConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
+		handlers.WebSocketConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
 	})
 
 	// テスト時はHTTPサーバーとして運用。デフォルトポートは ":8080"

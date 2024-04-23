@@ -21,7 +21,7 @@ type RoomCreateRequest struct {
 	RoomTheme          string `json:"roomTheme"`                    // ルームのテーマ
 }
 
-func RoomCreate(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
+func NewGame(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	var request RoomCreateRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		logger.Error("Room create request bind error", zap.Error(err))

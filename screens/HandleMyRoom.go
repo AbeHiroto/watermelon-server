@@ -12,6 +12,59 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ルームを作成したユーザーのホーム画面に表示される情報を取得するハンドラー
+func MyRoomInfo(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
+	// JWTトークンからユーザーIDを取得
+	userID, err := middlewares.GetUserIDFromToken(c, logger)
+	if err != nil {
+		logger.Error("Failed to get user ID from token", zap.Error(err))
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status": "token_validation_error",
+			"error":  "認証に失敗しました",
+		})
+		return
+	}
+
+	// ユーザーが作成した全てのルーム情報を取得
+	var rooms []models.GameRoom
+	if err := db.Where("user_id = ?", userID).Find(&rooms).Error; err != nil {
+		logger.Error("Failed to find rooms owned by the user", zap.Error(err))
+		c.JSON(http.StatusNotFound, gin.H{
+			"status": "not_your_rooms_error",
+			"error":  "ユーザーが所有するルームが見つかりません",
+		})
+		return
+	}
+
+	// 各ルームに紐づく入室申請情報も同時に取得
+	var roomsData []map[string]interface{}
+	for _, room := range rooms {
+		var challengers []struct {
+			ID                 uint   `json:"visitorId"`
+			ChallengerNickname string `json:"challengerNickname"`
+			Status             string `json:"status"`
+		}
+		db.Model(&models.Challenger{}).Select("id", "challenger_nickname", "status").
+			Where("game_room_id = ? AND status = ?", room.ID, "pending").Scan(&challengers)
+
+		roomData := map[string]interface{}{
+			"roomID":      room.ID,
+			"roomTheme":   room.RoomTheme,
+			"gameState":   room.GameState,
+			"uniqueToken": room.UniqueToken,
+			"createdAt":   room.CreatedAt,
+			"challengers": challengers,
+		}
+		roomsData = append(roomsData, roomData)
+	}
+
+	// 全てのルームと申請情報をクライアントに返す
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"rooms":  roomsData,
+	})
+}
+
 // ReplyRequest はリプライリクエストのボディを表す構造体です。
 type ReplyRequest struct {
 	Status string `json:"status"` // "accepted"または"rejected"
@@ -66,7 +119,7 @@ func ReplyHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 }
 
 // RoomDeleteHandler handles the request for deleting a room.
-func RoomDeleteHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
+func DeleteMyRoom(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	// JWTトークンからユーザーIDを取得
 	userID, err := middlewares.GetUserIDFromToken(c, logger)
 	if err != nil {
@@ -132,57 +185,4 @@ func RoomDeleteHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 
 	// 正常に処理が完了したことをクライアントに通知
 	c.JSON(http.StatusOK, gin.H{"message": "ルームが正常に削除されました"})
-}
-
-// ルームを作成したユーザーのホーム画面に表示される情報を取得するハンドラー
-func MyRoomInfoHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
-	// JWTトークンからユーザーIDを取得
-	userID, err := middlewares.GetUserIDFromToken(c, logger)
-	if err != nil {
-		logger.Error("Failed to get user ID from token", zap.Error(err))
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"status": "token_validation_error",
-			"error":  "認証に失敗しました",
-		})
-		return
-	}
-
-	// ユーザーが作成した全てのルーム情報を取得
-	var rooms []models.GameRoom
-	if err := db.Where("user_id = ?", userID).Find(&rooms).Error; err != nil {
-		logger.Error("Failed to find rooms owned by the user", zap.Error(err))
-		c.JSON(http.StatusNotFound, gin.H{
-			"status": "not_your_rooms_error",
-			"error":  "ユーザーが所有するルームが見つかりません",
-		})
-		return
-	}
-
-	// 各ルームに紐づく入室申請情報も同時に取得
-	var roomsData []map[string]interface{}
-	for _, room := range rooms {
-		var challengers []struct {
-			ID                 uint   `json:"visitorId"`
-			ChallengerNickname string `json:"challengerNickname"`
-			Status             string `json:"status"`
-		}
-		db.Model(&models.Challenger{}).Select("id", "challenger_nickname", "status").
-			Where("game_room_id = ? AND status = ?", room.ID, "pending").Scan(&challengers)
-
-		roomData := map[string]interface{}{
-			"roomID":      room.ID,
-			"roomTheme":   room.RoomTheme,
-			"gameState":   room.GameState,
-			"uniqueToken": room.UniqueToken,
-			"createdAt":   room.CreatedAt,
-			"challengers": challengers,
-		}
-		roomsData = append(roomsData, roomData)
-	}
-
-	// 全てのルームと申請情報をクライアントに返す
-	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"rooms":  roomsData,
-	})
 }

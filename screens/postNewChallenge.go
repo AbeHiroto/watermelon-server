@@ -19,7 +19,7 @@ type ChallengerRequest struct {
 }
 
 // ChallengerHandler は対戦申請を処理するハンドラです。
-func ChallengerHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
+func NewChallenge(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	uniqueToken := c.Param("uniqueToken") // URLからUniqueTokenを取得
 
 	// UniqueTokenを使用してGameRoomを検索

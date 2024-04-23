@@ -19,7 +19,7 @@ import (
 )
 
 // WebSocket接続へのアップグレードとセッションIDやゲームインスタンスの管理を行う
-func HandleConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, clients map[*models.Client]bool, games map[uint]*models.Game, upgrader websocket.Upgrader) {
+func WebSocketConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, clients map[*models.Client]bool, games map[uint]*models.Game, upgrader websocket.Upgrader) {
 	sessionID := r.Header.Get("SessionID")
 	var client *models.Client
 	// リクエストヘッダーにセッションIDがある場合はセッションの復旧を行い、無ければ新規発行
