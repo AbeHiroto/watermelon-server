@@ -1,7 +1,7 @@
 # Online Tic-Tac-Toe "BRIBE" Server
 
-## Overview and Purpose
-This project is the backend server for a [two-player online Tic-Tac-Toe web app "BRIBE"](https://github.com/AbeHiroto/bribe). I implemented a registration-free matching system using JWT tokens and invitation URLs. **In addition to that, "bribe" system makes this game definitely funnier than conventional tic-tac-toe!**
+## Overview
+This demo project is the backend server for a [two-player online Tic-Tac-Toe web app "BRIBE"](https://github.com/AbeHiroto/bribe). I implemented a registration-free matching system using JWT tokens and invitation URLs. **In addition to that, "bribe" system makes this game definitely funnier than conventional tic-tac-toe!**
 
 ## Built with natural language
 As a complete beginner with no prior programming experience, I started this project after just a basic tutorial in Go. With the help of ChatGPT, I managed to build this server using natural language processing. Although the project has a strong element of being a joke app, I took serious steps to ensure the gameplay process was enjoyable and implemented real-time battle through WebSocket communication. This project allowed me to learn basic development procedures, and I look forward to creating more enjoyable and beneficial projects in the future.
