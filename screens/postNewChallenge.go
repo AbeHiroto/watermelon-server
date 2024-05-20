@@ -18,6 +18,27 @@ type ChallengerRequest struct {
 	SubscriptionStatus string `json:"subscriptionStatus"` // 課金ステータス
 }
 
+// GetRoomInfo は uniqueToken を用いてゲームルームの情報を取得するためのハンドラです。
+func GetRoomInfo(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
+	uniqueToken := c.Param("uniqueToken") // URLからUniqueTokenを取得
+
+	// UniqueTokenを使用してGameRoomを検索
+	var gameRoom models.GameRoom
+	if err := db.Where("unique_token = ?", uniqueToken).First(&gameRoom).Error; err != nil {
+		logger.Error("GameRoom not found with unique token", zap.Error(err))
+		c.JSON(http.StatusNotFound, gin.H{"error": "GameRoom not found"})
+		return
+	}
+
+	// ゲームルームの情報を返す
+	c.JSON(http.StatusOK, gin.H{
+		"roomCreator": gameRoom.RoomCreator,
+		"roomTheme":   gameRoom.RoomTheme,
+		"gameState":   gameRoom.GameState,
+		"createdAt":   gameRoom.CreatedAt,
+	})
+}
+
 // ChallengerHandler は対戦申請を処理するハンドラです。
 func NewChallenge(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 	uniqueToken := c.Param("uniqueToken") // URLからUniqueTokenを取得

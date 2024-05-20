@@ -115,6 +115,9 @@ func main() {
 	router.DELETE("/request/disable", func(c *gin.Context) {
 		screens.DisableMyRequest(c, db, logger)
 	})
+	router.GET("/play/:uniqueToken", func(c *gin.Context) {
+		screens.GetRoomInfo(c, db, logger)
+	})
 	router.POST("/challenger/create/:uniqueToken", func(c *gin.Context) {
 		screens.NewChallenge(c, db, logger)
 	})
