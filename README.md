@@ -18,7 +18,7 @@ As a complete beginner with no prior programming experience, I started this proj
 - Logging: `go.uber.org/zap`
 - ORM: `gorm.io/gorm`
 - Real-time Communication: `github.com/gorilla/websocket`
-- Token Management: `github.com/dgrijalva/jwt-go`
+- Token Management: `github.com/golang-jwt/jwt v3.2.1+incompatible`
 
 ## Directories
 - main.go

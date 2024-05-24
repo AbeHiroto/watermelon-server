@@ -8,8 +8,8 @@ import (
 	"xicserver/auth"
 	"xicserver/models"
 
-	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
+	jwt "github.com/golang-jwt/jwt"
 	"go.uber.org/zap"
 )
 

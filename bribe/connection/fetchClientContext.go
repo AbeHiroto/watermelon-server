@@ -13,8 +13,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
-	"github.com/dgrijalva/jwt-go"
 	"github.com/go-redis/redis/v8"
+	"github.com/golang-jwt/jwt"
 )
 
 // ClientContext はクライアントのセッション情報を保持するための構造体です。

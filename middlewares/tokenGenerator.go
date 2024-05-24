@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	jwt "github.com/dgrijalva/jwt-go"
+	jwt "github.com/golang-jwt/jwt"
 	"go.uber.org/zap"
 )
 
