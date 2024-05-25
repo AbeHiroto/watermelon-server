@@ -25,9 +25,9 @@ func MyRoomInfo(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
-	// ユーザーが作成した全てのルーム情報を取得
+	// ユーザーが作成した、特定のステータス（"disabled"や"finished"）を除外したルーム情報を取得
 	var rooms []models.GameRoom
-	if err := db.Where("user_id = ?", userID).Find(&rooms).Error; err != nil {
+	if err := db.Where("user_id = ? AND game_state NOT IN ('disabled', 'finished')", userID).Find(&rooms).Error; err != nil {
 		logger.Error("Failed to find rooms owned by the user", zap.Error(err))
 		c.JSON(http.StatusNotFound, gin.H{
 			"status": "not_your_rooms_error",
