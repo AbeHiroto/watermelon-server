@@ -85,13 +85,18 @@ func main() {
 
 	//CORS（Cross-Origin Resource Sharing）ポリシーを設定
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:8080"}, //ここにデプロイサーバーのIPアドレスを設定
+		AllowOrigins:     []string{"http://localhost:*"}, //ここにデプロイサーバーのIPアドレスを設定
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
+	// OPTIONSリクエストを処理するハンドラ
+	router.OPTIONS("/*path", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
 
 	//各HTTPリクエストのルーティング
 	router.POST("/create", func(c *gin.Context) {
