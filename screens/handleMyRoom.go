@@ -67,7 +67,8 @@ func MyRoomInfo(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 
 // ReplyRequest はリプライリクエストのボディを表す構造体です。
 type ReplyRequest struct {
-	Status string `json:"status"` // "accepted"または"rejected"
+	VisitorID uint   `json:"visitorId"` // 申請者のID
+	Status    string `json:"status"`    // "accepted"または"rejected"
 }
 
 // ReplyHandler は入室申請に対するリプライ（承認または拒否）を処理します。
@@ -86,32 +87,39 @@ func ReplyHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
-	// ユーザーIDに基づいて、該当する入室申請を取得
-	var challengers []models.Challenger
-	if err := db.Joins("JOIN game_rooms ON game_rooms.id = challengers.game_room_id").
-		Where("game_rooms.user_id = ? AND challengers.status = 'pending'", userID).
-		Find(&challengers).Error; err != nil {
-		logger.Error("Failed to find challengers for user", zap.Error(err))
-		c.JSON(http.StatusNotFound, gin.H{"error": "No pending challengers found or unauthorized"})
+	// visitorIdに基づいて、該当する入室申請を取得
+	var challenger models.Challenger
+	if err := db.Where("id = ? AND status = 'pending'", replyRequest.VisitorID).First(&challenger).Error; err != nil {
+		logger.Error("Failed to find challenger", zap.Error(err))
+		c.JSON(http.StatusNotFound, gin.H{"error": "Challenger not found or not pending"})
+		return
+	}
+
+	// 入室申請が現在のユーザーのルームに関連付けられているか確認
+	var gameRoom models.GameRoom
+	if err := db.Where("id = ? AND user_id = ?", challenger.GameRoomID, userID).First(&gameRoom).Error; err != nil {
+		logger.Error("Unauthorized attempt to reply to a challenge", zap.Error(err))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
 
 	// 申請の承認または拒否
-	for _, challenger := range challengers {
-		if replyRequest.Status != "accepted" && replyRequest.Status != "rejected" {
-			continue // 不正なステータス値は無視
-		}
-		if err := db.Model(&challenger).Update("status", replyRequest.Status).Error; err != nil {
-			logger.Error("Failed to update challenger status", zap.Error(err))
-			continue // ステータス更新失敗はログに記録し続行
-		}
+	if replyRequest.Status != "accepted" && replyRequest.Status != "rejected" {
+		logger.Error("Invalid status value", zap.String("status", replyRequest.Status))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid status value"})
+		return
+	}
+	if err := db.Model(&challenger).Update("status", replyRequest.Status).Error; err != nil {
+		logger.Error("Failed to update challenger status", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
+		return
+	}
 
-		// "reject"の場合、申請者のHasRequestをfalseに更新
-		if replyRequest.Status == "rejected" {
-			if err := db.Model(&models.User{}).Where("id = ?", challenger.UserID).Update("has_request", false).Error; err != nil {
-				logger.Error("Failed to update user's HasRequest status", zap.Error(err))
-				// このエラーは入室申請の状態更新には影響しないため、ユーザーには成功のレスポンスを返しますが、内部ログには記録します。
-			}
+	// "rejected"の場合、申請者のHasRequestをfalseに更新
+	if replyRequest.Status == "rejected" {
+		if err := db.Model(&models.User{}).Where("id = ?", challenger.UserID).Update("has_request", false).Error; err != nil {
+			logger.Error("Failed to update user's HasRequest status", zap.Error(err))
+			// このエラーは入室申請の状態更新には影響しないため、ユーザーには成功のレスポンスを返しますが、内部ログには記録します。
 		}
 	}
 

@@ -114,17 +114,17 @@ func main() {
 	router.DELETE("/room", func(c *gin.Context) {
 		screens.DeleteMyRoom(c, db, logger)
 	})
-	router.GET("/request/info", func(c *gin.Context) {
-		screens.MyRequestInfo(c, db, logger)
-	})
-	router.DELETE("/request/disable", func(c *gin.Context) {
-		screens.DisableMyRequest(c, db, logger)
-	})
 	router.GET("/play/:uniqueToken", func(c *gin.Context) {
 		screens.GetRoomInfo(c, db, logger)
 	})
 	router.POST("/challenger/create/:uniqueToken", func(c *gin.Context) {
 		screens.NewChallenge(c, db, logger)
+	})
+	router.GET("/request/info", func(c *gin.Context) {
+		screens.MyRequestInfo(c, db, logger)
+	})
+	router.DELETE("/request/disable", func(c *gin.Context) {
+		screens.DisableMyRequest(c, db, logger)
 	})
 	router.GET("/ws", func(c *gin.Context) {
 		handlers.WebSocketConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
