@@ -6,10 +6,11 @@ import (
 
 // Websocketクライアントを定義
 type Client struct {
-	Conn   *websocket.Conn
-	UserID uint // JWTから抽出したユーザーID
-	RoomID uint
-	Role   string // User role (e.g., "creator", "challenger")
+	Conn      *websocket.Conn
+	UserID    uint // JWTから抽出したユーザーID
+	RoomID    uint
+	Role      string // User role (e.g., "creator", "challenger")
+	SessionID string
 }
 
 // 各ゲームのインスタンス

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"xicserver/bribe"
@@ -20,18 +21,83 @@ import (
 
 // WebSocket接続へのアップグレードとセッションIDやゲームインスタンスの管理を行う
 func WebSocketConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, clients map[*models.Client]bool, games map[uint]*models.Game, upgrader websocket.Upgrader) {
-	sessionID := r.Header.Get("SessionID")
+	// クエリパラメータからセッションIDとJWTを取得
+	sessionID := r.URL.Query().Get("sessionID")
+	jwtToken := r.URL.Query().Get("token")
+
 	var client *models.Client
-	// リクエストヘッダーにセッションIDがある場合はセッションの復旧を行い、無ければ新規発行
+
+	// セッションIDがある場合はセッションの復旧を試みる
 	if sessionID != "" {
 		client = database.ValidateSessionID(ctx, r, rdb, sessionID, logger)
 		if client == nil {
 			logger.Warn("Session ID is invalid or expired, creating a new session")
 			client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+			if client != nil {
+				if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+					logger.Error("Failed to generate or store session ID", zap.Error(err))
+					http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
+					return
+				}
+				sendNewSessionID(w, client.SessionID)
+				return
+			}
+			// 新しいセッションIDをクライアントに返す
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
 		}
 	} else {
+		// セッションIDが無い場合は新しいセッションを作成
 		client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+		if client != nil {
+			if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+				logger.Error("Failed to generate or store session ID", zap.Error(err))
+				http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
+				return
+			}
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// 新しいセッションIDをクライアントに返す
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
+	// //セッションIDとJWTをヘッダーで処理する場合
+	// sessionID := r.Header.Get("SessionID")
+	// var client *models.Client
+	// // リクエストヘッダーにセッションIDがある場合はセッションの復旧を行い、無ければ新規発行
+	// if sessionID != "" {
+	// 	client = database.ValidateSessionID(ctx, r, rdb, sessionID, logger)
+	// 	if client == nil {
+	// 		// セッションIDが無効または期限切れの場合、新しいセッションIDを作成して返す
+	// 		logger.Warn("Session ID is invalid or expired, creating a new session")
+	// 		client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+	// 		if client != nil {
+	// 			if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+	// 				logger.Error("Failed to generate or store session ID", zap.Error(err))
+	// 				http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
+	// 				return
+	// 			}
+	// 			sendNewSessionID(w, client.SessionID)
+	// 			return
+	// 		}
+	// 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	// 		return
+	// 	}
+	// } else {
+	// 	client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+	// 	if client != nil {
+	// 		if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+	// 			logger.Error("Failed to generate or store session ID", zap.Error(err))
+	// 			http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
+	// 			return
+	// 		}
+	// 		sendNewSessionID(w, client.SessionID)
+	// 		return
+	// 	}
+	// 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	// 	return
+	// }
 
 	if client == nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -48,6 +114,7 @@ func WebSocketConnections(ctx context.Context, w http.ResponseWriter, r *http.Re
 	}
 
 	// クライアントリストに新規クライアントを追加
+	client.Conn = conn
 	clients[client] = true
 	logger.Info("New client added", zap.Uint("UserID", client.UserID), zap.Uint("RoomID", client.RoomID), zap.String("Role", client.Role))
 
@@ -75,4 +142,10 @@ func WebSocketConnections(ctx context.Context, w http.ResponseWriter, r *http.Re
 
 	// Ping/Pongを管理するゴルーチンを起動
 	go connection.MaintainWebSocketConnection(client, clients, logger)
+}
+
+func sendNewSessionID(w http.ResponseWriter, sessionID string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{"sessionID": sessionID})
 }
