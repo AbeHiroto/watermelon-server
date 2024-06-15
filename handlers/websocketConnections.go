@@ -21,88 +21,102 @@ import (
 
 // WebSocket接続へのアップグレードとセッションIDやゲームインスタンスの管理を行う
 func WebSocketConnections(ctx context.Context, w http.ResponseWriter, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, clients map[*models.Client]bool, games map[uint]*models.Game, upgrader websocket.Upgrader) {
-	// クエリパラメータからセッションIDとJWTを取得
-	sessionID := r.URL.Query().Get("sessionID")
-	jwtToken := r.URL.Query().Get("token")
+	query := r.URL.Query()
+	tokenString := query.Get("token")
+	sessionID := query.Get("sessionID")
+
+	logger.Info("WebSocket connection request received", zap.String("token", tokenString), zap.String("sessionID", sessionID))
+
+	if tokenString == "" {
+		logger.Error("Token is missing")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var client *models.Client
 
-	// セッションIDがある場合はセッションの復旧を試みる
-	if sessionID != "" {
-		client = database.ValidateSessionID(ctx, r, rdb, sessionID, logger)
-		if client == nil {
-			logger.Warn("Session ID is invalid or expired, creating a new session")
-			client = connection.CreateNewSession(ctx, r, db, rdb, logger)
-			if client != nil {
-				if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
-					logger.Error("Failed to generate or store session ID", zap.Error(err))
-					http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
-					return
-				}
-				sendNewSessionID(w, client.SessionID)
+	if sessionID == "" {
+		logger.Info("SessionID is missing, creating a new session")
+		client = connection.CreateNewSession(ctx, r, db, rdb, logger, tokenString)
+		if client != nil {
+			// 新しいセッションIDをクライアントに返す
+			if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
+				logger.Error("Failed to generate or store session ID", zap.Error(err))
+				http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
 				return
 			}
-			// 新しいセッションIDをクライアントに返す
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			// 新しいセッションIDをHTTPレスポンスでクライアントに送信
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"sessionID": client.SessionID})
+			logger.Info("New session ID generated and sent to client", zap.String("sessionID", client.SessionID))
 			return
 		}
-	} else {
-		// セッションIDが無い場合は新しいセッションを作成
-		client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+		logger.Error("Failed to create new session")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	client = database.ValidateSessionID(ctx, r, rdb, sessionID, logger)
+	if client == nil {
+		logger.Warn("Session ID is invalid or expired, creating a new session")
+		client = connection.CreateNewSession(ctx, r, db, rdb, logger, tokenString)
 		if client != nil {
 			if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
 				logger.Error("Failed to generate or store session ID", zap.Error(err))
 				http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]string{"sessionID": client.SessionID})
+			logger.Info("New session ID generated and sent to client", zap.String("sessionID", client.SessionID))
 			return
 		}
-		// 新しいセッションIDをクライアントに返す
+		logger.Error("Failed to create new session")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	// //セッションIDとJWTをヘッダーで処理する場合
-	// sessionID := r.Header.Get("SessionID")
-	// var client *models.Client
-	// // リクエストヘッダーにセッションIDがある場合はセッションの復旧を行い、無ければ新規発行
-	// if sessionID != "" {
-	// 	client = database.ValidateSessionID(ctx, r, rdb, sessionID, logger)
-	// 	if client == nil {
-	// 		// セッションIDが無効または期限切れの場合、新しいセッションIDを作成して返す
-	// 		logger.Warn("Session ID is invalid or expired, creating a new session")
-	// 		client = connection.CreateNewSession(ctx, r, db, rdb, logger)
-	// 		if client != nil {
-	// 			if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
-	// 				logger.Error("Failed to generate or store session ID", zap.Error(err))
-	// 				http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
-	// 				return
-	// 			}
-	// 			sendNewSessionID(w, client.SessionID)
-	// 			return
-	// 		}
-	// 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-	// 		return
-	// 	}
-	// } else {
-	// 	client = connection.CreateNewSession(ctx, r, db, rdb, logger)
+
+	// if tokenString == "" || sessionID == "" {
+	// 	logger.Error("Token or sessionID is missing")
+	// 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	// 	return
+	// }
+
+	// client := database.ValidateSessionID(ctx, r, rdb, sessionID, logger)
+	// if client == nil {
+	// 	// セッションIDが無効または期限切れの場合、新しいセッションIDを作成して返す
+	// 	logger.Warn("Session ID is invalid or expired, creating a new session")
+	// 	client = connection.CreateNewSession(ctx, r, db, rdb, logger, tokenString)
 	// 	if client != nil {
+	// 		// 新しいセッションIDをクライアントに返す
 	// 		if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
 	// 			logger.Error("Failed to generate or store session ID", zap.Error(err))
 	// 			http.Error(w, "Failed to generate session ID", http.StatusInternalServerError)
 	// 			return
 	// 		}
-	// 		sendNewSessionID(w, client.SessionID)
+	// 		// 新しいセッションIDをクライアントに送信
+	// 		response := map[string]string{"sessionID": client.SessionID}
+	// 		responseJSON, err := json.Marshal(response)
+	// 		if err != nil {
+	// 			logger.Error("Error marshalling session ID response", zap.Error(err))
+	// 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	// 			return
+	// 		}
+	// 		w.Header().Set("Content-Type", "application/json")
+	// 		w.WriteHeader(http.StatusUnauthorized)
+	// 		w.Write(responseJSON)
 	// 		return
 	// 	}
 	// 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	// 	return
 	// }
 
-	if client == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
+	// if client == nil {
+	// 	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	// 	return
+	// }
 
 	// WebSocket接続へのアップグレードと確立
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -144,8 +158,8 @@ func WebSocketConnections(ctx context.Context, w http.ResponseWriter, r *http.Re
 	go connection.MaintainWebSocketConnection(client, clients, logger)
 }
 
-func sendNewSessionID(w http.ResponseWriter, sessionID string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	json.NewEncoder(w).Encode(map[string]string{"sessionID": sessionID})
-}
+// func sendNewSessionID(w http.ResponseWriter, sessionID string) {
+// 	w.Header().Set("Content-Type", "application/json")
+// 	w.WriteHeader(http.StatusUnauthorized)
+// 	json.NewEncoder(w).Encode(map[string]string{"sessionID": sessionID})
+// }

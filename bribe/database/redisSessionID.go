@@ -17,6 +17,11 @@ import (
 
 // ValidateSessionID checks the session ID from Redis and returns the client if the session is valid.
 func ValidateSessionID(ctx context.Context, r *http.Request, rdb *redis.Client, sessionID string, logger *zap.Logger) *models.Client {
+	if sessionID == "" {
+		logger.Error("Session ID is empty")
+		return nil
+	}
+
 	sessionInfoJSON, err := rdb.Get(ctx, "session:"+sessionID).Result()
 	if err != nil {
 		logger.Error("Failed to retrieve session info", zap.Error(err))
@@ -90,9 +95,13 @@ func sendSessionIDToClient(client *models.Client, sessionID string, logger *zap.
 	}
 
 	// クライアントにセッションIDを含むレスポンスを送信
-	if err := client.Conn.WriteMessage(websocket.TextMessage, responseJSON); err != nil {
-		logger.Error("Error sending session ID to client", zap.Error(err))
-		return err
+	if client.Conn != nil {
+		if err := client.Conn.WriteMessage(websocket.TextMessage, responseJSON); err != nil {
+			logger.Error("Error sending session ID to client", zap.Error(err))
+			return err
+		}
+	} else {
+		logger.Warn("WebSocket connection is not established, cannot send session ID")
 	}
 
 	return nil
