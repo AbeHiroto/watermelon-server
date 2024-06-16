@@ -38,8 +38,8 @@ func MaintainWebSocketConnection(c *models.Client, clients map[*models.Client]bo
 		select {
 		case <-ticker.C:
 			// Pingを送信
-			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				logger.Error("Error sending ping", zap.Error(err))
+			if c.Conn == nil || c.Conn.WriteMessage(websocket.PingMessage, nil) != nil {
+				logger.Error("Error sending ping or connection is closed", zap.Error(c.Conn.WriteMessage(websocket.PingMessage, nil)))
 				return // エラーが発生した場合はゴルーチンを終了
 			}
 		}

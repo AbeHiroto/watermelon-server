@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt"
+	"github.com/gorilla/websocket"
 )
 
 // ClientContext はクライアントのセッション情報を保持するための構造体です。
@@ -27,7 +28,7 @@ type ClientContext struct {
 }
 
 // クライアントが初めてセッションを開始する際この関数にアクセスします
-func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, tokenString string) *models.Client {
+func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *redis.Client, logger *zap.Logger, tokenString string, conn *websocket.Conn) *models.Client {
 	client := new(models.Client)
 	clientContext, err := FetchClientContext(ctx, r, db, logger, tokenString)
 	if err != nil {
@@ -38,10 +39,15 @@ func CreateNewSession(ctx context.Context, r *http.Request, db *gorm.DB, rdb *re
 	client.RoomID = clientContext.RoomID
 	client.Role = clientContext.Role
 
+	// WebSocket接続を確立した直後にclient.Connを設定
+	client.Conn = conn
+
 	if err := database.GenerateAndStoreSessionID(ctx, client, rdb, logger); err != nil {
 		logger.Error("Failed to generate or store session ID", zap.Error(err))
 		return nil
 	}
+	logger.Info("New session successfully created")
+
 	return client
 }
 

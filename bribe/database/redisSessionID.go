@@ -100,6 +100,7 @@ func sendSessionIDToClient(client *models.Client, sessionID string, logger *zap.
 			logger.Error("Error sending session ID to client", zap.Error(err))
 			return err
 		}
+		logger.Info("Successfully sent session ID to client", zap.String("sessionID", sessionID))
 	} else {
 		logger.Warn("WebSocket connection is not established, cannot send session ID")
 	}

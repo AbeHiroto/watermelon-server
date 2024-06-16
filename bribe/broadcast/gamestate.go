@@ -33,6 +33,7 @@ func BroadcastGameState(game *models.Game, logger *zap.Logger) {
 		"bias":          game.Bias,
 		"refereeStatus": game.RefereeStatus,
 		"winners":       game.Winners,
+		"bribeCounts":   game.BribeCounts,
 	}
 	messageJSON, _ := json.Marshal(gameState)
 
