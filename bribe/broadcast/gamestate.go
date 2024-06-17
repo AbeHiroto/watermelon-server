@@ -13,6 +13,7 @@ import (
 // ゲームの状態をブロードキャストするヘルパー関数
 func BroadcastGameState(game *models.Game, logger *zap.Logger) {
 	playersInfo := make([]map[string]interface{}, len(game.Players))
+	var currentPlayer string
 	for i, player := range game.Players {
 		if player != nil {
 			playersInfo[i] = map[string]interface{}{
@@ -20,13 +21,16 @@ func BroadcastGameState(game *models.Game, logger *zap.Logger) {
 				"nickName": player.NickName,
 				"symbol":   player.Symbol,
 			}
+			if player.ID == game.CurrentTurn {
+				currentPlayer = player.NickName // 現在のターンのプレイヤーのニックネームを設定
+			}
 		}
 	}
 
 	gameState := map[string]interface{}{
 		"type":          "gameState",
 		"board":         game.Board,
-		"currentTurn":   game.CurrentTurn,
+		"currentPlayer": currentPlayer,
 		"status":        game.Status,
 		"playersOnline": game.PlayersOnlineStatus,
 		"playersInfo":   playersInfo,
