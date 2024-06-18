@@ -80,7 +80,8 @@ func FetchClientContext(ctx context.Context, r *http.Request, db *gorm.DB, logge
 	} else if user.HasRequest {
 		role = "Challenger"
 		var challenger models.Challenger
-		if err := db.Where("game_room_id = ?", claims.UserID).First(&challenger).Error; err != nil {
+		if err := db.Where("user_id = ?", claims.UserID).First(&challenger).Error; err != nil {
+			//if err := db.Where("game_room_id = ?", claims.UserID).First(&challenger).Error; err != nil {
 			logger.Error("Failed to fetch challenger data", zap.Error(err))
 			return nil, fmt.Errorf("challenger fetch failed: %w", err)
 		}
