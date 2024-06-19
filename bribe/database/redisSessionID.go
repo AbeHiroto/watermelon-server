@@ -87,7 +87,11 @@ func GenerateAndStoreSessionID(ctx context.Context, client *models.Client, rdb *
 
 func sendSessionIDToClient(client *models.Client, sessionID string, logger *zap.Logger) error {
 	// セッションIDをクライアントに送信するためのレスポンスを作成
-	response := map[string]string{"sessionID": sessionID}
+	response := map[string]interface{}{
+		"sessionID": sessionID,
+		"userID":    client.UserID,
+	}
+	//response := map[string]string{"sessionID": sessionID}
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
 		logger.Error("Error marshalling session ID response", zap.Error(err))
