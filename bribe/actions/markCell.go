@@ -11,23 +11,38 @@ import (
 )
 
 func handleMarkCell(client *models.Client, msg map[string]interface{}, game *models.Game, randGen *rand.Rand, db *gorm.DB, logger *zap.Logger) {
+	logger.Info("Received message", zap.Any("msg", msg))
+
 	// msgからセルの位置を取得
-	x, okX := msg["x"].(int)
-	y, okY := msg["y"].(int)
-	if !okX || !okY || x < 0 || y < 0 || x >= len(game.Board) || y >= len(game.Board[0]) {
+	xFloat, okX := msg["x"].(float64)
+	yFloat, okY := msg["y"].(float64)
+	if !okX || !okY {
 		sendErrorMessage(client, "Invalid cell coordinates")
+		logger.Error("Invalid cell coordinates - type assertion failed", zap.Any("x", msg["x"]), zap.Any("y", msg["y"]))
+		return
+	}
+
+	x := int(xFloat)
+	y := int(yFloat)
+	logger.Info("Parsed cell coordinates", zap.Int("x", x), zap.Int("y", y))
+
+	if x < 0 || y < 0 || x >= len(game.Board) || y >= len(game.Board[0]) {
+		sendErrorMessage(client, "Invalid cell coordinates")
+		logger.Error("Invalid cell coordinates", zap.Int("x", x), zap.Int("y", y))
 		return
 	}
 
 	// 選択されたセルが空かどうかチェック
 	if game.Board[x][y] != "" {
 		sendErrorMessage(client, "Cell is already marked")
+		logger.Error("Cell is already marked", zap.Int("x", x), zap.Int("y", y))
 		return
 	}
 
 	// クライアントのUserIDがCurrentTurnと一致するか確認
 	if game.CurrentTurn != client.UserID {
 		sendErrorMessage(client, "Not your turn")
+		logger.Error("Not your turn", zap.Uint("CurrentTurn", game.CurrentTurn), zap.Uint("ClientID", client.UserID))
 		return
 	}
 
@@ -95,6 +110,7 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 	if len(game.Board) == 5 && len(game.Board[0]) == 5 {
 		winCondition = 4 // 5x5のボードでは勝利条件を4に設定
 	}
+	logger.Info("Checking game status", zap.Int("winCondition", winCondition))
 
 	// 現在のプレイヤーのシンボルを取得
 	currentPlayerSymbol := ""
@@ -104,12 +120,14 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 			break
 		}
 	}
+	logger.Info("Current player symbol", zap.String("symbol", currentPlayerSymbol))
 
 	// 勝敗判定
 	var nextRoundStatus string
-	if checkWin(game.Board, currentPlayerSymbol, winCondition) {
+	if checkWin(game.Board, currentPlayerSymbol, winCondition, logger) {
 		// 勝者がいる場合
 		game.Winners = append(game.Winners, game.CurrentTurn) // 勝者のIDを追加
+		logger.Info("Player won", zap.Uint("winnerID", game.CurrentTurn))
 		// 現在のラウンドに応じて次のステータスを設定
 		switch game.Status {
 		case "round1":
@@ -122,6 +140,7 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 	} else if isBoardFull(game.Board) {
 		// ボードが全て埋まっているが、勝者がいない場合（引き分け）
 		game.Winners = append(game.Winners, 0) // 引き分けを示すために特別な値（ここでは0）を追加
+		logger.Info("Game ended in a draw")
 		// 同じく現在のラウンドに応じて次のステータスを設定
 		switch game.Status {
 		case "round1":
@@ -138,11 +157,13 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 		} else {
 			game.CurrentTurn = game.Players[0].ID
 		}
+		logger.Info("Turn updated", zap.Uint("nextTurn", game.CurrentTurn))
 	}
 
 	// ステータスの更新が必要な場合（勝者が決定した場合や引き分けの場合）のみ、ステータスを更新
 	if nextRoundStatus != "" {
 		game.Status = nextRoundStatus
+		logger.Info("Updating game status", zap.String("nextRoundStatus", nextRoundStatus))
 		if game.Status == "finished" {
 			err := db.Transaction(func(tx *gorm.DB) error {
 				// Update game state in the database
@@ -179,16 +200,71 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 				logger.Error("Failed to finalize game room updates", zap.Error(err))
 			} else {
 				broadcast.BroadcastResults(game, logger) // Only broadcast results if transaction was successful
+				logger.Info("Game results broadcasted")
 			}
+		} else if game.Status == "round1_finished" || game.Status == "round2_finished" {
+			broadcast.BroadcastResults(game, logger)
+			logger.Info("Round results broadcasted")
 		} else {
 			broadcast.BroadcastGameState(game, logger)
+			logger.Info("Game state broadcasted")
 		}
 	} else {
 		broadcast.BroadcastGameState(game, logger)
+		logger.Info("Game state broadcasted - no status update needed")
 	}
+	// if nextRoundStatus != "" {
+	// 	game.Status = nextRoundStatus
+	// 	logger.Info("Updating game status", zap.String("nextRoundStatus", nextRoundStatus))
+	// 	if game.Status == "finished" {
+	// 		err := db.Transaction(func(tx *gorm.DB) error {
+	// 			// Update game state in the database
+	// 			if err := tx.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error; err != nil {
+	// 				return err
+	// 			}
+
+	// 			// Update the room creator's HasRoom to false
+	// 			var gameRoom models.GameRoom
+	// 			if err := tx.Where("id = ?", game.ID).First(&gameRoom).Error; err != nil {
+	// 				return err
+	// 			}
+
+	// 			if err := tx.Model(&models.User{}).Where("id = ?", gameRoom.UserID).Update("has_room", false).Error; err != nil {
+	// 				return err
+	// 			}
+
+	// 			// Find all users with 'accepted' requests for this room and update their HasRequest to false
+	// 			var challengers []models.Challenger
+	// 			if err := tx.Where("game_room_id = ? AND status = 'accepted'", gameRoom.ID).Find(&challengers).Error; err != nil {
+	// 				return err
+	// 			}
+
+	// 			for _, challenger := range challengers {
+	// 				if err := tx.Model(&models.User{}).Where("id = ?", challenger.UserID).Update("has_request", false).Error; err != nil {
+	// 					return err
+	// 				}
+	// 			}
+
+	// 			return nil
+	// 		})
+
+	// 		if err != nil {
+	// 			logger.Error("Failed to finalize game room updates", zap.Error(err))
+	// 		} else {
+	// 			broadcast.BroadcastResults(game, logger) // Only broadcast results if transaction was successful
+	// 			logger.Info("Game results broadcasted")
+	// 		}
+	// 	} else {
+	// 		broadcast.BroadcastGameState(game, logger)
+	// 		logger.Info("Game state broadcasted")
+	// 	}
+	// } else {
+	// 	broadcast.BroadcastGameState(game, logger)
+	// 	logger.Info("Game state broadcasted - no status update needed")
+	// }
 }
 
-func checkWin(board [][]string, symbol string, winCondition int) bool {
+func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Logger) bool {
 	size := len(board)
 
 	// 横列のチェック
@@ -200,6 +276,7 @@ func checkWin(board [][]string, symbol string, winCondition int) bool {
 			}
 		}
 		if count == winCondition {
+			logger.Info("Winning condition met - row", zap.Int("row", row))
 			return true
 		}
 	}
@@ -213,6 +290,7 @@ func checkWin(board [][]string, symbol string, winCondition int) bool {
 			}
 		}
 		if count == winCondition {
+			logger.Info("Winning condition met - column", zap.Int("column", col))
 			return true
 		}
 	}
@@ -225,6 +303,7 @@ func checkWin(board [][]string, symbol string, winCondition int) bool {
 		}
 	}
 	if count == winCondition {
+		logger.Info("Winning condition met - diagonal (left-top to right-bottom)")
 		return true
 	}
 
@@ -236,9 +315,11 @@ func checkWin(board [][]string, symbol string, winCondition int) bool {
 		}
 	}
 	if count == winCondition {
+		logger.Info("Winning condition met - diagonal (right-top to left-bottom)")
 		return true
 	}
 
+	logger.Info("No winning condition met")
 	return false
 }
 

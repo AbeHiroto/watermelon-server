@@ -58,7 +58,8 @@ func HandleClient(client *models.Client, clients map[*models.Client]bool, games 
 
 		// メッセージタイプに基づいて適切なアクションを実行
 		switch msg["type"].(string) {
-		case "markCell", "bribe", "accuse", "retry":
+		case "action":
+			// case "markCell", "bribe", "accuse", "retry":
 			// ここでさらにアクションタイプに応じて処理を分岐
 			actionType := msg["actionType"].(string)
 			switch actionType {
