@@ -70,7 +70,7 @@ func HandleClient(client *models.Client, clients map[*models.Client]bool, games 
 			case "accuse":
 				handleAccuse(game, client, logger)
 			case "retry":
-				handleRetry(game, client, clients, msg, logger)
+				handleRetry(game, client, clients, msg, logger, db)
 			default:
 				logger.Info("Unknown action type", zap.String("actionType", actionType))
 			}

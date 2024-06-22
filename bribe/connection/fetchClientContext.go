@@ -70,19 +70,29 @@ func FetchClientContext(ctx context.Context, r *http.Request, db *gorm.DB, logge
 	if user.HasRoom {
 		role = "Creator"
 		var gameRoom models.GameRoom
-		if err := db.Where("user_id = ?", claims.UserID).First(&gameRoom).Error; err != nil {
+		if err := db.Where("user_id = ? AND game_state = ?", claims.UserID, "created").First(&gameRoom).Error; err != nil {
 			logger.Error("Failed to fetch game room", zap.Error(err))
 			return nil, fmt.Errorf("game room fetch failed: %w", err)
 		}
+		// if err := db.Where("user_id = ?", claims.UserID).First(&gameRoom).Error; err != nil {
+		// 	logger.Error("Failed to fetch game room", zap.Error(err))
+		// 	return nil, fmt.Errorf("game room fetch failed: %w", err)
+		// }
 		roomID = gameRoom.ID
 	} else if user.HasRequest {
 		role = "Challenger"
 		var challenger models.Challenger
-		if err := db.Where("user_id = ?", claims.UserID).First(&challenger).Error; err != nil {
-			//if err := db.Where("game_room_id = ?", claims.UserID).First(&challenger).Error; err != nil {
+		// Fetch the challenger with the room's game state being 'created'
+		if err := db.Joins("JOIN game_rooms ON challengers.game_room_id = game_rooms.id").
+			Where("challengers.user_id = ? AND game_rooms.game_state = ?", claims.UserID, "created").
+			First(&challenger).Error; err != nil {
 			logger.Error("Failed to fetch challenger data", zap.Error(err))
 			return nil, fmt.Errorf("challenger fetch failed: %w", err)
 		}
+		// if err := db.Where("user_id = ?", claims.UserID).First(&challenger).Error; err != nil {
+		// 	logger.Error("Failed to fetch challenger data", zap.Error(err))
+		// 	return nil, fmt.Errorf("challenger fetch failed: %w", err)
+		// }
 		roomID = challenger.GameRoomID
 	} else {
 		return nil, fmt.Errorf("unauthorized access: viewer role not permitted")

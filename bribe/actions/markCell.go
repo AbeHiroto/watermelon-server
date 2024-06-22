@@ -165,6 +165,9 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 		game.Status = nextRoundStatus
 		logger.Info("Updating game status", zap.String("nextRoundStatus", nextRoundStatus))
 		if game.Status == "finished" {
+			broadcast.BroadcastResults(game, logger)
+			logger.Info("Game results broadcasted")
+
 			err := db.Transaction(func(tx *gorm.DB) error {
 				// Update game state in the database
 				if err := tx.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error; err != nil {
@@ -198,9 +201,6 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 
 			if err != nil {
 				logger.Error("Failed to finalize game room updates", zap.Error(err))
-			} else {
-				broadcast.BroadcastResults(game, logger) // Only broadcast results if transaction was successful
-				logger.Info("Game results broadcasted")
 			}
 		} else if game.Status == "round1_finished" || game.Status == "round2_finished" {
 			broadcast.BroadcastResults(game, logger)
@@ -213,55 +213,6 @@ func checkAndUpdateGameStatus(game *models.Game, db *gorm.DB, logger *zap.Logger
 		broadcast.BroadcastGameState(game, logger)
 		logger.Info("Game state broadcasted - no status update needed")
 	}
-	// if nextRoundStatus != "" {
-	// 	game.Status = nextRoundStatus
-	// 	logger.Info("Updating game status", zap.String("nextRoundStatus", nextRoundStatus))
-	// 	if game.Status == "finished" {
-	// 		err := db.Transaction(func(tx *gorm.DB) error {
-	// 			// Update game state in the database
-	// 			if err := tx.Model(&models.GameRoom{}).Where("id = ?", game.ID).Update("game_state", "finished").Error; err != nil {
-	// 				return err
-	// 			}
-
-	// 			// Update the room creator's HasRoom to false
-	// 			var gameRoom models.GameRoom
-	// 			if err := tx.Where("id = ?", game.ID).First(&gameRoom).Error; err != nil {
-	// 				return err
-	// 			}
-
-	// 			if err := tx.Model(&models.User{}).Where("id = ?", gameRoom.UserID).Update("has_room", false).Error; err != nil {
-	// 				return err
-	// 			}
-
-	// 			// Find all users with 'accepted' requests for this room and update their HasRequest to false
-	// 			var challengers []models.Challenger
-	// 			if err := tx.Where("game_room_id = ? AND status = 'accepted'", gameRoom.ID).Find(&challengers).Error; err != nil {
-	// 				return err
-	// 			}
-
-	// 			for _, challenger := range challengers {
-	// 				if err := tx.Model(&models.User{}).Where("id = ?", challenger.UserID).Update("has_request", false).Error; err != nil {
-	// 					return err
-	// 				}
-	// 			}
-
-	// 			return nil
-	// 		})
-
-	// 		if err != nil {
-	// 			logger.Error("Failed to finalize game room updates", zap.Error(err))
-	// 		} else {
-	// 			broadcast.BroadcastResults(game, logger) // Only broadcast results if transaction was successful
-	// 			logger.Info("Game results broadcasted")
-	// 		}
-	// 	} else {
-	// 		broadcast.BroadcastGameState(game, logger)
-	// 		logger.Info("Game state broadcasted")
-	// 	}
-	// } else {
-	// 	broadcast.BroadcastGameState(game, logger)
-	// 	logger.Info("Game state broadcasted - no status update needed")
-	// }
 }
 
 func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Logger) bool {

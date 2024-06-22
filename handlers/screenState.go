@@ -61,25 +61,41 @@ func HomeHandler(c *gin.Context, db *gorm.DB, logger *zap.Logger) {
 
 	var acceptedRequestCount int64
 	// ユーザーの入室申請のステータスが"accepted"であるかどうかをチェック
-	err = db.Model(&models.Challenger{}).Where("user_id = ? AND status = 'accepted'", userID).Count(&acceptedRequestCount).Error
+	err = db.Model(&models.Challenger{}).
+		Joins("JOIN game_rooms ON game_rooms.id = challengers.game_room_id").
+		Where("challengers.user_id = ? AND challengers.status = 'accepted' AND game_rooms.game_state = 'created'", userID).
+		Count(&acceptedRequestCount).Error
 	replyStatus := "none"
 	if err == nil && acceptedRequestCount > 0 {
 		replyStatus = "accepted"
 	}
+	// err = db.Model(&models.Challenger{}).Where("user_id = ? AND status = 'accepted'", userID).Count(&acceptedRequestCount).Error
+	// replyStatus := "none"
+	// if err == nil && acceptedRequestCount > 0 {
+	// 	replyStatus = "accepted"
+	// }
 
 	// ユーザーが作成したルームに対して"pending"状態の入室申請があるかどうかをチェック
 	var pendingRequestExists bool
 	db.Model(&models.Challenger{}).
-		Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
-		Where("game_rooms.user_id = ? AND challengers.status = 'pending'", userID).
+		Joins("JOIN game_rooms ON game_rooms.id = challengers.game_room_id").
+		Where("game_rooms.user_id = ? AND challengers.status = 'pending' AND game_rooms.game_state = 'created'", userID).
 		Select("count(*) > 0").Find(&pendingRequestExists)
+	// db.Model(&models.Challenger{}).
+	// 	Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
+	// 	Where("game_rooms.user_id = ? AND challengers.status = 'pending'", userID).
+	// 	Select("count(*) > 0").Find(&pendingRequestExists)
 
 	// ユーザーが作成したルームに対して"accepted"状態の入室申請があるかどうかをチェック
 	var acceptedRequestExists bool
 	db.Model(&models.Challenger{}).
-		Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
-		Where("game_rooms.user_id = ? AND challengers.status = 'accepted'", userID).
+		Joins("JOIN game_rooms ON game_rooms.id = challengers.game_room_id").
+		Where("game_rooms.user_id = ? AND challengers.status = 'accepted' AND game_rooms.game_state = 'created'", userID).
 		Select("count(*) > 0").Find(&acceptedRequestExists)
+	// db.Model(&models.Challenger{}).
+	// 	Joins("join game_rooms on game_rooms.id = challengers.game_room_id").
+	// 	Where("game_rooms.user_id = ? AND challengers.status = 'accepted'", userID).
+	// 	Select("count(*) > 0").Find(&acceptedRequestExists)
 
 	var roomStatus string
 	if acceptedRequestExists {
