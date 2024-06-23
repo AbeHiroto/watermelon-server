@@ -10,7 +10,8 @@ import (
 func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 	// RefereeStatusが"normal"でなければ賄賂は無視
 	if game.RefereeStatus != "normal" {
-		logger.Info("Bribe attempt ignored, referee status is not normal", zap.Uint("PlayerID", client.UserID))
+		logger.Info("Bribe ignored, referee status is not normal", zap.Uint("PlayerID", client.UserID))
+		sendSystemMessage(client, "SYSTEM:Bribe ignored, referee status is not normal", logger)
 		return
 	}
 
@@ -40,6 +41,7 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 		game.BiasDegree = newBiasDegree
 	}
 
+	sendSystemMessage(client, "SYSTEM:Bribe accepted!", logger)
 	logger.Info("Bribe accepted", zap.Uint("PlayerID", client.UserID), zap.Int("NewBiasDegree", game.BiasDegree))
 
 	// ゲーム状態のブロードキャスト
@@ -49,7 +51,8 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) {
 	// 審判の状態が "normal" でない場合は、糾弾は無効
 	if game.RefereeStatus != "normal" {
-		logger.Info("Accusation is ineffective because the referee is already in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))
+		logger.Info("Accusation is ineffective! The referee is in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))
+		sendSystemMessage(client, "SYSTEM:Accusation is ineffective! The referee is in an abnormal state.", logger)
 		return
 	}
 
@@ -77,6 +80,22 @@ func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) 
 		game.RefereeCount = 4 // ここでRefereeCountを設定
 	}
 
+	logger.Info("Accusation has sent.", zap.Uint("PlayerID", client.UserID), zap.Int("NewBiasDegree", game.BiasDegree))
+
 	// ゲーム状態のブロードキャスト
 	broadcast.BroadcastGameState(game, logger)
+}
+
+func sendSystemMessage(client *models.Client, message string, logger *zap.Logger) {
+	chatMessage := map[string]interface{}{
+		"type":    "chatMessage",
+		"message": message,
+		"from":    0, // 0 indicates system message
+	}
+	err := client.Conn.WriteJSON(chatMessage)
+	if err != nil {
+		logger.Error("Failed to send system message", zap.Error(err))
+	} else {
+		logger.Info("System message sent", zap.String("message", message), zap.Uint("PlayerID", client.UserID))
+	}
 }
