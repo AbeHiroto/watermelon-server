@@ -11,7 +11,7 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 	// RefereeStatusが"normal"でなければ賄賂は無視
 	if game.RefereeStatus != "normal" {
 		logger.Info("Bribe ignored, referee status is not normal", zap.Uint("PlayerID", client.UserID))
-		sendSystemMessage(client, "SYSTEM:Bribe ignored, referee status is not normal", logger)
+		sendSystemMessage(client, "SYSTEM: Bribe ignored, referee status is not normal", logger)
 		return
 	}
 
@@ -41,7 +41,7 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 		game.BiasDegree = newBiasDegree
 	}
 
-	sendSystemMessage(client, "SYSTEM:Bribe accepted!", logger)
+	sendSystemMessage(client, "SYSTEM: Your Bribe accepted!", logger)
 	logger.Info("Bribe accepted", zap.Uint("PlayerID", client.UserID), zap.Int("NewBiasDegree", game.BiasDegree))
 
 	// ゲーム状態のブロードキャスト
@@ -51,7 +51,7 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) {
 	// 審判の状態が "normal" でない場合は、糾弾は無効
 	if game.RefereeStatus != "normal" {
-		logger.Info("Accusation is ineffective! The referee is in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))
+		logger.Info(" Accusation is ineffective! The referee is in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))
 		sendSystemMessage(client, "SYSTEM:Accusation is ineffective! The referee is in an abnormal state.", logger)
 		return
 	}
