@@ -168,9 +168,10 @@ func sendRetryRequestNotification(fromUserID uint, toUserID uint, clients map[*m
 			chatMessage := "SYSTEM: Your opponent sent retry request!"
 			timestamp := time.Now().Format(time.RFC3339)
 			message := map[string]interface{}{
-				"type":      "chatMessage",
-				"message":   chatMessage,
-				"from":      fromUserID,
+				"type":    "chatMessage",
+				"message": chatMessage,
+				"from":    0,
+				// "from":      fromUserID,
 				"timestamp": timestamp,
 			}
 			messageJSON, _ := json.Marshal(message)
