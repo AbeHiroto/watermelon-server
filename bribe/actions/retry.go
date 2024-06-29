@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	// "math/rand"
+	"xicserver/bribe"
 	"xicserver/bribe/broadcast"
 	"xicserver/models"
 
@@ -81,7 +81,7 @@ func handleRetry(game *models.Game, client *models.Client, clients map[*models.C
 		if client.UserID == game.Players[0].ID {
 			opponentID = game.Players[1].ID
 		}
-		sendRetryRequestNotification(client.UserID, opponentID, clients, logger)
+		sendRetryRequestNotification(opponentID, clients, logger)
 	}
 
 	// 両方のプレイヤーからの再戦リクエストを確認
@@ -147,6 +147,7 @@ func getNextRoundStatus(currentStatus string) string {
 
 // ゲームを次のラウンドに向けてリセットするヘルパー関数
 func resetGameForNextRound(game *models.Game) {
+	randGen := bribe.CreateLocalRandGenerator()
 	// ボードのリセット
 	for i := range game.Board {
 		for j := range game.Board[i] {
@@ -157,12 +158,12 @@ func resetGameForNextRound(game *models.Game) {
 	// その他の状態のリセット
 	game.BribeCounts = [2]int{0, 0}
 	game.BiasDegree = 0
-	game.RefereeStatus = "normal"
+	game.RefereeStatus = getRandomNormalRefereeStatus(randGen)
 	game.RefereeCount = 0
 	// 必要に応じてその他のフィールドをリセット
 }
 
-func sendRetryRequestNotification(fromUserID uint, toUserID uint, clients map[*models.Client]bool, logger *zap.Logger) {
+func sendRetryRequestNotification(toUserID uint, clients map[*models.Client]bool, logger *zap.Logger) {
 	for c := range clients {
 		if c.UserID == toUserID {
 			chatMessage := "SYSTEM: Your opponent sent retry request!"

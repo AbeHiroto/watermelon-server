@@ -1,6 +1,8 @@
 package actions
 
 import (
+	"math/rand"
+	"xicserver/bribe"
 	"xicserver/bribe/broadcast"
 	"xicserver/models"
 
@@ -49,10 +51,11 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 }
 
 func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) {
+	randGen := bribe.CreateLocalRandGenerator()
 	// 審判の状態が "normal" でない場合は、糾弾は無効
 	if game.RefereeStatus != "normal" {
 		logger.Info(" Accusation is ineffective! The referee is in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))
-		sendSystemMessage(client, "SYSTEM:Accusation is ineffective! The referee is in an abnormal state.", logger)
+		sendSystemMessage(client, "SYSTEM: Accusation is ineffective!", logger)
 		return
 	}
 
@@ -60,24 +63,31 @@ func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) 
 	// 一行目は審判が公平（BiasDegreeが"0"）だった場合
 	if game.BiasDegree == 0 {
 		if client.UserID == game.Players[0].ID {
-			game.RefereeStatus = "angry"
+			game.RefereeStatus = getRandomAngryRefereeStatus(randGen)
 			game.BiasDegree = -1
 		} else if client.UserID == game.Players[1].ID {
-			game.RefereeStatus = "angry"
+			game.RefereeStatus = getRandomAngryRefereeStatus(randGen)
 			game.BiasDegree = 1
 		}
 		game.RefereeCount = 4 // ここでRefereeCountを設定
 	} else if (client.UserID == game.Players[0].ID && game.BiasDegree < 0) ||
 		(client.UserID == game.Players[1].ID && game.BiasDegree > 0) {
 		// 対戦相手が賄賂を贈っていた場合
-		game.RefereeStatus = "sad"
+		game.RefereeStatus = getRandomSadRefereeStatus(randGen)
 		game.BiasDegree *= -1 // BiasDegreeを反転させて、糾弾したプレイヤーに有利にする
 		game.RefereeCount = 4 // ここでRefereeCountを設定
 	} else {
 		// 賄賂を贈っていたのが自分だった場合
-		game.RefereeStatus = "angry"
+		game.RefereeStatus = getRandomAngryRefereeStatus(randGen)
 		game.BiasDegree *= -1 // 既に有利なBiasDegreeが設定されているのでそれを反転させる
 		game.RefereeCount = 4 // ここでRefereeCountを設定
+	}
+
+	// 審判の状態に応じたシステムチャットメッセージを送信
+	if game.RefereeStatus == "angry" {
+		sendSystemMessage(client, "REFEREE: Wrong accusation! I'm angry!", logger)
+	} else if game.RefereeStatus == "sad" {
+		sendSystemMessage(client, "REFEREE: Sorry I'm regret...", logger)
 	}
 
 	logger.Info("Accusation has sent.", zap.Uint("PlayerID", client.UserID), zap.Int("NewBiasDegree", game.BiasDegree))
@@ -98,4 +108,14 @@ func sendSystemMessage(client *models.Client, message string, logger *zap.Logger
 	} else {
 		logger.Info("System message sent", zap.String("message", message), zap.Uint("PlayerID", client.UserID))
 	}
+}
+
+func getRandomAngryRefereeStatus(randGen *rand.Rand) string {
+	angryStatuses := []string{"angry_01", "angry_02", "angry_03", "angry_04", "angry_05"}
+	return angryStatuses[randGen.Intn(len(angryStatuses))]
+}
+
+func getRandomSadRefereeStatus(randGen *rand.Rand) string {
+	sadStatuses := []string{"sad_01", "sad_02", "sad_03", "sad_04"}
+	return sadStatuses[randGen.Intn(len(sadStatuses))]
 }

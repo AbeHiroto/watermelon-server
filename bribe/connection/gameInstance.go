@@ -2,6 +2,7 @@ package connection
 
 import (
 	"context"
+	"math/rand"
 
 	"xicserver/bribe"
 	"xicserver/bribe/broadcast"
@@ -91,7 +92,7 @@ func ManageGameInstance(ctx context.Context, db *gorm.DB, logger *zap.Logger, ga
 			RoomTheme:           roomTheme,
 			Bias:                bias,
 			BiasDegree:          0,
-			RefereeStatus:       "normal",
+			RefereeStatus:       getRandomNormalRefereeStatus(randGen),
 			PlayersOnlineStatus: make(map[uint]bool), // マップを初期化
 			BribeCounts:         [2]int{0, 0},
 		}
@@ -105,4 +106,9 @@ func ManageGameInstance(ctx context.Context, db *gorm.DB, logger *zap.Logger, ga
 
 		return game, nil
 	}
+}
+
+func getRandomNormalRefereeStatus(randGen *rand.Rand) string {
+	normalStatuses := []string{"normal_01", "normal_02", "normal_03", "normal_04", "normal_05", "normal_06", "normal_07"}
+	return normalStatuses[randGen.Intn(len(normalStatuses))]
 }

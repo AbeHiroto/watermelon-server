@@ -82,13 +82,19 @@ func handleMarkCell(client *models.Client, msg map[string]interface{}, game *mod
 
 			// RefereeCountが0になったらRefereeStatusを"normal"に戻す
 			if game.RefereeCount == 0 && game.RefereeStatus != "normal" {
-				game.RefereeStatus = "normal"
+				game.RefereeStatus = getRandomNormalRefereeStatus(randGen)
+				sendSystemMessage(client, "REFEREE: Now I'm reformed and fair!", logger)
 			}
 		}
 	}
 
 	// 勝敗判定とゲーム状態の更新
 	checkAndUpdateGameStatus(game, db, logger)
+}
+
+func getRandomNormalRefereeStatus(randGen *rand.Rand) string {
+	normalStatuses := []string{"normal_01", "normal_02", "normal_03", "normal_04", "normal_05", "normal_06", "normal_07"}
+	return normalStatuses[randGen.Intn(len(normalStatuses))]
 }
 
 // 指定されたセルを除いた空のセルのリストを返すヘルパー関数
