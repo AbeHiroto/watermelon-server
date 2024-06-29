@@ -2,6 +2,7 @@ package actions
 
 import (
 	"math/rand"
+	"strings"
 	"xicserver/bribe"
 	"xicserver/bribe/broadcast"
 	"xicserver/models"
@@ -10,8 +11,8 @@ import (
 )
 
 func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
-	// RefereeStatusが"normal"でなければ賄賂は無視
-	if game.RefereeStatus != "normal" {
+	// RefereeStatusが"normal"以外で始まる場合は賄賂を無視
+	if !strings.HasPrefix(game.RefereeStatus, "normal") {
 		logger.Info("Bribe ignored, referee status is not normal", zap.Uint("PlayerID", client.UserID))
 		sendSystemMessage(client, "SYSTEM: Bribe ignored, referee status is not normal", logger)
 		return
@@ -52,9 +53,10 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 
 func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) {
 	randGen := bribe.CreateLocalRandGenerator()
-	// 審判の状態が "normal" でない場合は、糾弾は無効
-	if game.RefereeStatus != "normal" {
-		logger.Info(" Accusation is ineffective! The referee is in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))
+
+	// 審判の状態が "normal" で始まる場合は糾弾は無効
+	if !strings.HasPrefix(game.RefereeStatus, "normal") {
+		logger.Info("Accusation is ineffective! The referee is in an abnormal state.", zap.String("RefereeStatus", game.RefereeStatus))
 		sendSystemMessage(client, "SYSTEM: Accusation is ineffective!", logger)
 		return
 	}
@@ -84,16 +86,39 @@ func handleAccuse(game *models.Game, client *models.Client, logger *zap.Logger) 
 	}
 
 	// 審判の状態に応じたシステムチャットメッセージを送信
-	if game.RefereeStatus == "angry" {
-		sendSystemMessage(client, "REFEREE: Wrong accusation! I'm angry!", logger)
-	} else if game.RefereeStatus == "sad" {
-		sendSystemMessage(client, "REFEREE: Sorry I'm regret...", logger)
+	if strings.HasPrefix(game.RefereeStatus, "angry") {
+		sendMessageBoth(game, "REFEREE: Wrong accusation! I'm angry!", logger)
+	} else if strings.HasPrefix(game.RefereeStatus, "sad") {
+		sendMessageBoth(game, "REFEREE: Sorry I'm regret...", logger)
 	}
+	// if game.RefereeStatus == "angry" {
+	// 	sendSystemMessage(client, "REFEREE: Wrong accusation! I'm angry!", logger)
+	// } else if game.RefereeStatus == "sad" {
+	// 	sendSystemMessage(client, "REFEREE: Sorry I'm regret...", logger)
+	// }
 
 	logger.Info("Accusation has sent.", zap.Uint("PlayerID", client.UserID), zap.Int("NewBiasDegree", game.BiasDegree))
 
 	// ゲーム状態のブロードキャスト
 	broadcast.BroadcastGameState(game, logger)
+}
+
+func sendMessageBoth(game *models.Game, message string, logger *zap.Logger) {
+	for _, player := range game.Players {
+		if player != nil && player.Conn != nil {
+			chatMessage := map[string]interface{}{
+				"type":    "chatMessage",
+				"message": message,
+				"from":    0, // 0 indicates system message
+			}
+			err := player.Conn.WriteJSON(chatMessage)
+			if err != nil {
+				logger.Error("Failed to send message", zap.Error(err))
+			} else {
+				logger.Info("Message sent to both players", zap.String("message", message), zap.Uint("PlayerID", player.ID))
+			}
+		}
+	}
 }
 
 func sendSystemMessage(client *models.Client, message string, logger *zap.Logger) {

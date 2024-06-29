@@ -2,6 +2,7 @@ package actions
 
 import (
 	"math/rand"
+	"strings"
 
 	"xicserver/bribe/broadcast"
 	"xicserver/models"
@@ -80,10 +81,10 @@ func handleMarkCell(client *models.Client, msg map[string]interface{}, game *mod
 		if game.RefereeCount > 0 {
 			game.RefereeCount--
 
-			// RefereeCountが0になったらRefereeStatusを"normal"に戻す
-			if game.RefereeCount == 0 && game.RefereeStatus != "normal" {
+			// RefereeCountが0になったらRefereeStatusを"normal"で始まる状態に戻す
+			if game.RefereeCount == 0 && !strings.HasPrefix(game.RefereeStatus, "normal") {
 				game.RefereeStatus = getRandomNormalRefereeStatus(randGen)
-				sendSystemMessage(client, "REFEREE: Now I'm reformed and fair!", logger)
+				sendMessageBoth(game, "REFEREE: Now I'm reformed and fair!", logger)
 			}
 		}
 	}
@@ -253,28 +254,80 @@ func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Log
 	}
 
 	// 斜め（左上から右下）のチェック
-	count := 0
-	for index := 0; index < size; index++ {
-		if board[index][index] == symbol {
-			count++
+	for start := 0; start <= size-winCondition; start++ {
+		count := 0
+		for index := 0; index < size-start; index++ {
+			if board[start+index][index] == symbol {
+				count++
+				if count == winCondition {
+					logger.Info("Winning condition met - diagonal (left-top to right-bottom)")
+					return true
+				}
+			} else {
+				count = 0
+			}
+		}
+		count = 0
+		for index := 0; index < size-start; index++ {
+			if board[index][start+index] == symbol {
+				count++
+				if count == winCondition {
+					logger.Info("Winning condition met - diagonal (left-top to right-bottom)")
+					return true
+				}
+			} else {
+				count = 0
+			}
 		}
 	}
-	if count == winCondition {
-		logger.Info("Winning condition met - diagonal (left-top to right-bottom)")
-		return true
-	}
+	// count := 0
+	// for index := 0; index < size; index++ {
+	// 	if board[index][index] == symbol {
+	// 		count++
+	// 	}
+	// }
+	// if count == winCondition {
+	// 	logger.Info("Winning condition met - diagonal (left-top to right-bottom)")
+	// 	return true
+	// }
 
 	// 斜め（右上から左下）のチェック
-	count = 0
-	for index := 0; index < size; index++ {
-		if board[index][size-index-1] == symbol {
-			count++
+	for start := 0; start <= size-winCondition; start++ {
+		count := 0
+		for index := 0; index < size-start; index++ {
+			if board[start+index][size-1-index] == symbol {
+				count++
+				if count == winCondition {
+					logger.Info("Winning condition met - diagonal (right-top to left-bottom)")
+					return true
+				}
+			} else {
+				count = 0
+			}
+		}
+		count = 0
+		for index := 0; index < size-start; index++ {
+			if board[index][size-1-start-index] == symbol {
+				count++
+				if count == winCondition {
+					logger.Info("Winning condition met - diagonal (right-top to left-bottom)")
+					return true
+				}
+			} else {
+				count = 0
+			}
 		}
 	}
-	if count == winCondition {
-		logger.Info("Winning condition met - diagonal (right-top to left-bottom)")
-		return true
-	}
+	// count = 0
+	// for index := 0; index < size; index++ {
+	// 	if board[index][size-index-1] == symbol {
+	// 		count++
+	// 	}
+	// }
+	// if count == winCondition {
+	// 	logger.Info("Winning condition met - diagonal (right-top to left-bottom)")
+	// 	return true
+	// }
 
 	logger.Info("No winning condition met")
 	return false
