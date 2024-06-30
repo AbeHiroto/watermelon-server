@@ -44,7 +44,7 @@ func handleBribe(game *models.Game, client *models.Client, logger *zap.Logger) {
 		game.BiasDegree = newBiasDegree
 	}
 
-	sendSystemMessage(client, "SYSTEM: Your Bribe accepted!", logger)
+	sendSystemMessage(client, "REFEREE: Your Bribe accepted!", logger)
 	logger.Info("Bribe accepted", zap.Uint("PlayerID", client.UserID), zap.Int("NewBiasDegree", game.BiasDegree))
 
 	// ゲーム状態のブロードキャスト
