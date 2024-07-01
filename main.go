@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	//"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -16,18 +17,28 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
+
+	//"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func main() {
 	var logger *zap.Logger
 	var err error
+
 	// ロガーの初期化とクリーンナップ
 	logger, err = utils.InitLogger()
 	if err != nil {
 		panic(err)
 	}
 	defer logger.Sync()
+
+	// .envファイルを読み込む
+	err = godotenv.Load()
+	if err != nil {
+		logger.Fatal("Error loading .env file", zap.Error(err))
+	}
 
 	// Websocket接続で用いる変数を初期化
 	clients := make(map[*models.Client]bool)
@@ -46,12 +57,8 @@ func main() {
 	done := make(chan bool)
 
 	go func() {
-		// 開発環境でのみ設定ファイルを使用
-		config, err := database.LoadConfig("config.json")
-		if err != nil {
-			logger.Fatal("設定ファイルの読み込みに失敗しました", zap.Error(err))
-		}
-		db, err = database.InitPostgreSQL(config, logger)
+		// データベース接続情報を環境変数から取得
+		db, err = database.InitPostgreSQL(logger)
 		if err != nil {
 			logger.Fatal("PostgreSQLの初期化に失敗しました", zap.Error(err))
 		}
@@ -126,6 +133,9 @@ func main() {
 	router.DELETE("/request/disable", func(c *gin.Context) {
 		screens.DisableMyRequest(c, db, logger)
 	})
+	// router.GET("/wss", func(c *gin.Context) {
+	// 	handlers.WebSocketConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
+	// })
 	router.GET("/ws", func(c *gin.Context) {
 		handlers.WebSocketConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
 	})
@@ -134,7 +144,7 @@ func main() {
 	router.Run()
 
 	// // 本番環境ではコメントアウトを解除し、HTTPSサーバーとして運用
-	// err = router.RunTLS(":443", "path/to/cert.pem", "path/to/key.pem")
+	// err = router.RunTLS(":443", "/example/cert.pem", "/example/privkey.pem")
 	// if err != nil {
 	// 	logger.Fatal("Failed to run HTTPS server: ", zap.Error(err))
 	// }

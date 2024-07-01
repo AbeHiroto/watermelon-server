@@ -30,9 +30,9 @@ func LoadConfig(filename string) (models.Config, error) {
 	return config, err
 }
 
-func InitPostgreSQL(config models.Config, logger *zap.Logger) (*gorm.DB, error) {
+func InitPostgreSQL(logger *zap.Logger) (*gorm.DB, error) {
 	dsn := fmt.Sprintf("host=%s user=%s dbname=%s password=%s sslmode=%s",
-		config.DBHost, config.DBUser, config.DBName, config.DBPassword, config.DBSSLMode)
+		os.Getenv("DB_HOST"), os.Getenv("DB_USER"), os.Getenv("DB_NAME"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_SSLMODE"))
 
 	const maxRetries = 3
 	const retryInterval = 5 * time.Second
@@ -47,6 +47,24 @@ func InitPostgreSQL(config models.Config, logger *zap.Logger) (*gorm.DB, error) 
 	}
 	return nil, fmt.Errorf("データベース接続に失敗しました: %v", err)
 }
+
+// func InitPostgreSQL(config models.Config, logger *zap.Logger) (*gorm.DB, error) {
+// 	dsn := fmt.Sprintf("host=%s user=%s dbname=%s password=%s sslmode=%s",
+// 		config.DBHost, config.DBUser, config.DBName, config.DBPassword, config.DBSSLMode)
+
+// 	const maxRetries = 3
+// 	const retryInterval = 5 * time.Second
+// 	var err error
+// 	for i := 0; i <= maxRetries; i++ {
+// 		gormDB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+// 		if err == nil {
+// 			return gormDB, nil
+// 		}
+// 		logger.Error("データベース接続のリトライ", zap.Int("retry", i), zap.Error(err))
+// 		time.Sleep(retryInterval)
+// 	}
+// 	return nil, fmt.Errorf("データベース接続に失敗しました: %v", err)
+// }
 
 func InitRedis(logger *zap.Logger) (*redis.Client, error) {
 	// 環境変数からRedis接続情報を取得
