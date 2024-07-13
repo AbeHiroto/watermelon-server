@@ -15,12 +15,16 @@ func CronCleaner(db *gorm.DB, logger *zap.Logger) {
 	// GameStateをexpiredに更新するジョブ（毎日特定の時間に実行）
 	c.AddFunc("@daily", func() {
 		logger.Info("GameStateを更新する処理を開始")
-		// 24時間更新がないルームをexpiredに更新し、そのIDを取得
+		// 作成後72時間経過した"expired"または"finished"以外のルームのgame_stateを"expired"に更新しルームIDを取得
 		expiredRoomIDs := []uint{}
 		db.Model(&models.GameRoom{}).
-			Where("game_state = ? AND updated_at <= ?", "created", time.Now().Add(-24*time.Hour)).
+			Where("game_state NOT IN (?) AND created_at <= ?", []string{"expired", "finished"}, time.Now().Add(-72*time.Hour)).
 			Pluck("id", &expiredRoomIDs).
 			Update("game_state", "expired")
+		// db.Model(&models.GameRoom{}).
+		// 	Where("game_state = ? AND updated_at <= ?", "created", time.Now().Add(-24*time.Hour)).
+		// 	Pluck("id", &expiredRoomIDs).
+		// 	Update("game_state", "expired")
 
 		// 関連する入室申請のStatusをdisabledに更新
 		for _, roomID := range expiredRoomIDs {
@@ -48,7 +52,7 @@ func CronCleaner(db *gorm.DB, logger *zap.Logger) {
 		// expired状態のルームを取得
 		expiredRoomIDs := []uint{}
 		db.Model(&models.GameRoom{}).
-			Where("game_state = ? AND updated_at <= ?", "expired", time.Now().Add(-48*time.Hour)).
+			Where("game_state = ? AND updated_at <= ?", "expired", time.Now().Add(-72*time.Hour)).
 			Pluck("id", &expiredRoomIDs)
 
 		// それぞれのルームに対して入室申請を削除

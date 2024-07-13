@@ -231,11 +231,13 @@ func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Log
 		for col := 0; col < size; col++ {
 			if board[row][col] == symbol {
 				count++
+				if count == winCondition {
+					logger.Info("Winning condition met - row", zap.Int("row", row))
+					return true
+				}
+			} else {
+				count = 0
 			}
-		}
-		if count == winCondition {
-			logger.Info("Winning condition met - row", zap.Int("row", row))
-			return true
 		}
 	}
 
@@ -245,16 +247,19 @@ func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Log
 		for row := 0; row < size; row++ {
 			if board[row][col] == symbol {
 				count++
+				if count == winCondition {
+					logger.Info("Winning condition met - column", zap.Int("column", col))
+					return true
+				}
+			} else {
+				count = 0
 			}
-		}
-		if count == winCondition {
-			logger.Info("Winning condition met - column", zap.Int("column", col))
-			return true
 		}
 	}
 
 	// 斜め（左上から右下）のチェック
 	for start := 0; start <= size-winCondition; start++ {
+		// 主対角線
 		count := 0
 		for index := 0; index < size-start; index++ {
 			if board[start+index][index] == symbol {
@@ -267,6 +272,7 @@ func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Log
 				count = 0
 			}
 		}
+		// 副対角線
 		count = 0
 		for index := 0; index < size-start; index++ {
 			if board[index][start+index] == symbol {
@@ -280,19 +286,10 @@ func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Log
 			}
 		}
 	}
-	// count := 0
-	// for index := 0; index < size; index++ {
-	// 	if board[index][index] == symbol {
-	// 		count++
-	// 	}
-	// }
-	// if count == winCondition {
-	// 	logger.Info("Winning condition met - diagonal (left-top to right-bottom)")
-	// 	return true
-	// }
 
 	// 斜め（右上から左下）のチェック
 	for start := 0; start <= size-winCondition; start++ {
+		// 主対角線
 		count := 0
 		for index := 0; index < size-start; index++ {
 			if board[start+index][size-1-index] == symbol {
@@ -305,6 +302,7 @@ func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Log
 				count = 0
 			}
 		}
+		// 副対角線
 		count = 0
 		for index := 0; index < size-start; index++ {
 			if board[index][size-1-start-index] == symbol {
@@ -318,16 +316,6 @@ func checkWin(board [][]string, symbol string, winCondition int, logger *zap.Log
 			}
 		}
 	}
-	// count = 0
-	// for index := 0; index < size; index++ {
-	// 	if board[index][size-index-1] == symbol {
-	// 		count++
-	// 	}
-	// }
-	// if count == winCondition {
-	// 	logger.Info("Winning condition met - diagonal (right-top to left-bottom)")
-	// 	return true
-	// }
 
 	logger.Info("No winning condition met")
 	return false
