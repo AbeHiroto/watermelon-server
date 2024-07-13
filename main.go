@@ -133,19 +133,19 @@ func main() {
 	router.DELETE("/request/disable", func(c *gin.Context) {
 		screens.DisableMyRequest(c, db, logger)
 	})
-	// router.GET("/wss", func(c *gin.Context) {
-	// 	handlers.WebSocketConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
-	// })
-	router.GET("/ws", func(c *gin.Context) {
+	router.GET("/wss", func(c *gin.Context) {
 		handlers.WebSocketConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
 	})
+	// router.GET("/ws", func(c *gin.Context) {
+	// 	handlers.WebSocketConnections(c.Request.Context(), c.Writer, c.Request, db, rdb, logger, clients, games, upgrader)
+	// })
 
-	// テスト時はHTTPサーバーとして運用。デフォルトポートは ":8080"
-	router.Run()
+	// // テスト時はHTTPサーバーとして運用。デフォルトポートは ":8080"
+	// router.Run()
 
-	// // 本番環境ではコメントアウトを解除し、HTTPSサーバーとして運用
-	// err = router.RunTLS(":443", "/example/cert.pem", "/example/privkey.pem")
-	// if err != nil {
-	// 	logger.Fatal("Failed to run HTTPS server: ", zap.Error(err))
-	// }
+	// 本番環境ではコメントアウトを解除し、HTTPSサーバーとして運用
+	err = router.RunTLS(":443", "pass/for/cert.pem", "pass/for/privkey.pem")
+	if err != nil {
+		logger.Fatal("Failed to run HTTPS server: ", zap.Error(err))
+	}
 }
