@@ -69,3 +69,4 @@ jwtKey.go
 # Custom folders #
 #################
 migrations/
+build/
