@@ -144,7 +144,7 @@ func main() {
 	// router.Run()
 
 	// 本番環境ではコメントアウトを解除し、HTTPSサーバーとして運用
-	err = router.RunTLS(":443", "pass/for/cert.pem", "pass/for/privkey.pem")
+	err = router.RunTLS(":443", "path/for/cert.pem", "path/for/privkey.pem")
 	if err != nil {
 		logger.Fatal("Failed to run HTTPS server: ", zap.Error(err))
 	}
